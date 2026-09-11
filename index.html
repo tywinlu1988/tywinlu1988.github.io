@@ -190,7 +190,7 @@ fetch('https://api.github.com/users/tywinlu1988/repos?per_page=100&sort=updated'
   resize();
   window.addEventListener('resize', resize);
 
-  const G = 0.11, LIFT = -0.30, OB_W = 46, GAP = 190;
+  const G = 0.07, LIFT = -0.19, OB_W = 46, GAP = 190;
   let playing = false, dead = false, holding = false;
   let y = H / 2, vy = 0, x = 120, speed = 2.4;
   let obs = [], dist = 0, score = 0, frame = 0;
@@ -266,7 +266,7 @@ fetch('https://api.github.com/users/tywinlu1988/repos?per_page=100&sort=updated'
     if (playing) {
       frame++;
       vy += holding ? LIFT : G;
-      vy = Math.max(-4, Math.min(5, vy));
+      vy = Math.max(-2.4, Math.min(2.4, vy));
       y += vy;
       dist += speed;
       score = Math.floor(dist / 10);
