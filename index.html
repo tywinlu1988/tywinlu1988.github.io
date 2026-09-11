@@ -233,6 +233,109 @@ fetch('https://api.github.com/users/tywinlu1988/repos?per_page=100&sort=updated'
   })
   .catch(() => {});
 
+
+/* ================= 迷你机台 x3 ================= */
+(function () {
+  const z = document.getElementById('reactZone'), bestEl = document.getElementById('reactBest');
+  let state = 'idle', t0 = 0, timer = null;
+  let best = parseInt(localStorage.getItem('reactBest') || '0', 10);
+  const sync = () => { bestEl.textContent = 'best: ' + (best ? best + 'ms' : '—'); };
+  sync();
+  function set(cls, txt) { z.className = cls; z.textContent = txt; }
+  function arm() {
+    state = 'wait'; set('wait', cur === 'zh' ? '等变绿…' : 'wait for green…');
+    timer = setTimeout(() => { state = 'go'; t0 = performance.now(); set('go', cur === 'zh' ? '点！' : 'TAP!'); }, 1500 + Math.random() * 2500);
+  }
+  z.addEventListener('pointerdown', () => {
+    if (state === 'idle' || state === 'early' || state === 'done') { arm(); return; }
+    if (state === 'wait') { clearTimeout(timer); state = 'early'; set('early', cur === 'zh' ? '太早了！' : 'too early!'); return; }
+    if (state === 'go') {
+      const ms = Math.round(performance.now() - t0);
+      if (!best || ms < best) { best = ms; localStorage.setItem('reactBest', String(ms)); }
+      sync(); state = 'done'; set('idle', ms + ' ms');
+      setTimeout(() => { state = 'idle'; }, 600);
+    }
+  });
+  set('idle', cur === 'zh' ? '点开始' : 'tap to start');
+})();
+
+(function () {
+  const cv = document.getElementById('catchCv'), ctx = cv.getContext('2d');
+  const bestEl = document.getElementById('catchBest'), livesEl = document.getElementById('catchLives');
+  let W = 0, H = 170;
+  function rs() { W = cv.clientWidth || 260; cv.width = W; cv.height = H; }
+  rs(); window.addEventListener('resize', rs);
+  let playing = false, bx = 0, balls = [], score = 0, lives = 3, frame = 0;
+  let best = parseInt(localStorage.getItem('catchBest') || '0', 10);
+  const sync = () => { bestEl.textContent = 'best: ' + best; livesEl.textContent = '♥'.repeat(Math.max(lives, 0)) || '💀'; };
+  sync();
+  cv.addEventListener('pointermove', e => { const r = cv.getBoundingClientRect(); bx = e.clientX - r.left; });
+  cv.addEventListener('pointerdown', () => { if (!playing) { playing = true; balls = []; score = 0; lives = 3; frame = 0; bx = W / 2; sync(); } });
+  function loop() {
+    ctx.clearRect(0, 0, W, H);
+    if (playing) {
+      frame++;
+      if (frame % Math.max(28, 55 - Math.floor(score / 5)) === 0) balls.push({ x: 12 + Math.random() * (W - 24), y: -8, v: 1.1 + Math.random() * 0.7 + score * 0.015 });
+      for (const b of balls) b.y += b.v;
+      balls = balls.filter(b => {
+        if (b.y > H - 22 && Math.abs(b.x - bx) < 26) { score++; return false; }
+        if (b.y > H + 6) { lives--; sync(); if (lives <= 0) { playing = false; if (score > best) { best = score; localStorage.setItem('catchBest', String(best)); } } return false; }
+        return true;
+      });
+      for (const b of balls) { ctx.font = '16px serif'; ctx.fillText('📄', b.x - 8, b.y); }
+      ctx.fillStyle = '#d9a03f'; ctx.fillRect(bx - 24, H - 14, 48, 9);
+      ctx.fillStyle = '#b8b0a3'; ctx.fillRect(bx - 20, H - 18, 40, 5);
+      ctx.fillStyle = '#ede8df'; ctx.font = '600 12px sans-serif'; ctx.fillText('score ' + score, 8, 16);
+    } else {
+      ctx.fillStyle = '#7a7367'; ctx.font = 'italic 13px Georgia,serif'; ctx.textAlign = 'center';
+      ctx.fillText(score > 0 ? (cur === 'zh' ? '本局 ' + score + ' · 点击再来' : 'score ' + score + ' · tap to retry') : (cur === 'zh' ? '点击开始 · 移动鼠标接纸团' : 'tap to start · move to catch'), W / 2, H / 2);
+      ctx.textAlign = 'left';
+    }
+    requestAnimationFrame(loop);
+  }
+  loop();
+})();
+
+(function () {
+  const SYMS = ['🍒', '🖊️', '📄', '✈️', '⭐', '🎲'];
+  const reels = [0, 1, 2].map(i => document.getElementById('reel' + i));
+  const msg = document.getElementById('slotMsg'), winsEl = document.getElementById('slotWins');
+  const lever = document.getElementById('lever');
+  let wins = parseInt(localStorage.getItem('slotWins') || '0', 10);
+  let spinning = false;
+  winsEl.textContent = 'jackpots: ' + wins;
+  function pull() {
+    if (spinning) return; spinning = true;
+    msg.className = ''; msg.textContent = '…';
+    reels.forEach(r => r.classList.add('spin'));
+    const finals = [];
+    const rigged = Math.random() < 0.12;
+    const rigSym = SYMS[Math.floor(Math.random() * SYMS.length)];
+    reels.forEach((r, i) => {
+      const iv = setInterval(() => { r.textContent = SYMS[Math.floor(Math.random() * SYMS.length)]; }, 90);
+      setTimeout(() => {
+        clearInterval(iv); r.classList.remove('spin');
+        finals[i] = rigged ? rigSym : SYMS[Math.floor(Math.random() * SYMS.length)];
+        r.textContent = finals[i];
+        if (finals.filter(x => x !== undefined).length === 3) {
+          const a = finals[0], b = finals[1], c = finals[2];
+          if (a === b && b === c) {
+            wins++; localStorage.setItem('slotWins', String(wins));
+            winsEl.textContent = 'jackpots: ' + wins;
+            msg.className = 'jackpot'; msg.textContent = cur === 'zh' ? '🎉 大满贯！' : '🎉 JACKPOT!';
+          } else if (a === b || b === c || a === c) {
+            msg.textContent = cur === 'zh' ? '差一点儿！' : 'so close!';
+          } else {
+            msg.textContent = cur === 'zh' ? '再来一杆' : 'pull again';
+          }
+          spinning = false;
+        }
+      }, 900 + i * 450);
+    });
+  }
+  lever.addEventListener('click', pull);
+})();
+
 /* Konami 彩蛋：尘埃变红雨 */
 (function () {
   const code = ['ArrowUp','ArrowUp','ArrowDown','ArrowDown','ArrowLeft','ArrowRight','ArrowLeft','ArrowRight','b','a'];
