@@ -84,7 +84,7 @@
   #slotMsg.jackpot { color:var(--ochre); font-weight:700; animation:flash .4s alternate 6; }
   @keyframes flash { from{opacity:.4} to{opacity:1} }
   #catchCv { display:block; width:100%; height:170px; cursor:none; touch-action:none; }
-  [data-l] { display:none; } [data-l].on { display:block; }
+  [data-l] { display:none; } [data-l].on { display:block; } a[data-l].on { display:inline-block; }
 </style>
 </head>
 <body>
@@ -97,21 +97,18 @@
     <span class="lang" id="langBtn">中文</span>
   </header>
 
-  <!-- 小游戏：纸飞机 -->
+  <!-- 主机台：纸片深渊（内嵌） -->
   <div class="cab">
     <div class="cab-top">
-      <span class="led" id="led"></span>
-      <span class="cab-title">✈ PAPER GLIDER</span>
-      <a href="abyss-lite.html" style="margin-left:14px;background:var(--red);color:#fff;font-size:11.5px;font-weight:700;padding:3px 12px;border-radius:99px;text-decoration:none;">🌊 NEW · 纸片深渊 PAPER ABYSS →</a>
-      <span class="cab-hint" data-l="en" id="h-en">hold Space / mouse to climb · release to dive</span>
-      <span class="cab-hint" data-l="zh" id="h-zh">按住 空格/鼠标 爬升 · 松开俯冲</span>
+      <span class="led"></span>
+      <span class="cab-title">🌊 PAPER ABYSS · 纸片深渊</span>
+      <a href="abyss-lite.html" target="_blank" style="margin-left:auto;background:var(--red);color:#fff;font-size:11.5px;font-weight:700;padding:3px 12px;border-radius:99px;text-decoration:none;" data-l="en" id="fs-en">fullscreen →</a>
+      <a href="abyss-lite.html" target="_blank" style="margin-left:auto;background:var(--red);color:#fff;font-size:11.5px;font-weight:700;padding:3px 12px;border-radius:99px;text-decoration:none;display:none;" data-l="zh" id="fs-zh">全屏玩 →</a>
     </div>
-    <div class="screen"><canvas id="game" height="300"></canvas></div>
+    <div class="screen"><iframe src="abyss-lite.html" title="Paper Abyss" style="display:block;width:100%;aspect-ratio:880/560;border:0;"></iframe></div>
     <div class="cab-bottom">
-      <span data-l="en" id="s-en">best: <b id="best">0</b> m</span>
-      <span data-l="zh" id="s-zh">最高纪录：<b id="best2">0</b> m</span>
-      <span style="margin-left:auto" data-l="en" id="r-en">click the screen to start</span>
-      <span style="margin-left:auto" data-l="zh" id="r-zh">点击屏幕开始</span>
+      <span data-l="en" class="on">WASD / hold mouse to move · auto-attack · clear waves &amp; pick mutations</span>
+      <span data-l="zh">WASD / 鼠标按住移动 · 自动攻击 · 清波三选一突变</span>
     </div>
   </div>
 
@@ -205,7 +202,7 @@
 <script>
 /* ================= 语言切换 ================= */
 let cur = 'en';
-const ids = ['t-en','t-zh','h-en','h-zh','s-en','s-zh','r-en','r-zh','p-en','p-zh','e-en','e-zh','mg-en','mg-zh'];
+const ids = ['t-en','t-zh','fs-en','fs-zh','p-en','p-zh','e-en','e-zh','mg-en','mg-zh'];
 function applyLang() {
   ids.forEach(id => { const el = document.getElementById(id); if (el) el.classList.toggle('on', id.endsWith(cur)); });
   document.getElementById('sv-en').classList.toggle('on', cur === 'en');
@@ -236,229 +233,14 @@ fetch('https://api.github.com/users/tywinlu1988/repos?per_page=100&sort=updated'
   })
   .catch(() => {});
 
-/* ================= 纸飞机小游戏 ================= */
+/* Konami 彩蛋：尘埃变红雨 */
 (function () {
-  const cv = document.getElementById('game');
-  const ctx = cv.getContext('2d');
-  let W = 0, H = 300;
-  function resize() {
-    W = cv.clientWidth || 800;
-    cv.width = W; cv.height = H;
-  }
-  resize();
-  window.addEventListener('resize', resize);
-
-  const G = 0.07, LIFT = -0.19, OB_W = 46, GAP = 190;
-  let playing = false, dead = false, holding = false;
-  let y = H / 2, vy = 0, x = 120, speed = 2.4;
-  let obs = [], dist = 0, score = 0, frame = 0;
-  let best = parseInt(localStorage.getItem('gliderBest') || '0', 10);
-  let rain = false; // 彩蛋：红笔雨
-
-  const bestEl = document.getElementById('best'), bestEl2 = document.getElementById('best2');
-  function syncBest() { bestEl.textContent = best; bestEl2.textContent = best; }
-  syncBest();
-
-  function start() {
-    playing = true; dead = false;
-    y = H / 2; vy = 0; obs = []; dist = 0; score = 0; frame = 0; speed = 2.4;
-    document.getElementById('led').style.background = '#3fa873';
-  }
-  function crash() {
-    dead = true; playing = false;
-    if (score > best) { best = score; localStorage.setItem('gliderBest', String(best)); syncBest(); }
-    document.getElementById('led').style.background = '#e05555';
-  }
-
-  function spawnOb() {
-    const top = 40 + Math.random() * (H - GAP - 80);
-    obs.push({ x: W + 20, gapY: top, gapH: GAP });
-  }
-
-  function drawPlane() {
-    ctx.save();
-    ctx.translate(x, y);
-    ctx.rotate(Math.max(-0.5, Math.min(0.5, vy * 0.12)));
-    ctx.fillStyle = '#ede8df';
-    ctx.strokeStyle = '#b8b0a3';
-    ctx.beginPath();
-    ctx.moveTo(16, 0); ctx.lineTo(-12, -8); ctx.lineTo(-6, 0); ctx.lineTo(-12, 8); ctx.closePath();
-    ctx.fill(); ctx.stroke();
-    ctx.restore();
-  }
-
-  function drawObs() {
-    for (const o of obs) {
-      ctx.fillStyle = rain ? '#e05555' : '#3a2f26';
-      ctx.strokeStyle = rain ? '#b91c1c' : '#57534e';
-      ctx.fillRect(o.x, 0, OB_W, o.gapY);
-      ctx.fillRect(o.x, o.gapY + o.gapH, OB_W, H - o.gapY - o.gapH);
-      ctx.strokeRect(o.x + .5, -1, OB_W - 1, o.gapY);
-      ctx.strokeRect(o.x + .5, o.gapY + o.gapH, OB_W - 1, H - o.gapY - o.gapH);
-    }
-  }
-
-  function hud() {
-    ctx.fillStyle = '#ede8df';
-    ctx.font = '600 16px -apple-system, sans-serif';
-    ctx.fillText((cur === 'zh' ? '距离 ' : 'distance ') + score + ' m', 14, 26);
-    if (!playing && !dead) {
-      ctx.fillStyle = '#7a7367'; ctx.font = 'italic 15px Georgia, serif'; ctx.textAlign = 'center';
-      ctx.fillText(cur === 'zh' ? '点击开始 · 按住爬升，松开俯冲' : 'click to start · hold to climb, release to dive', W / 2, H / 2 - 10);
-      ctx.textAlign = 'left';
-    }
-    if (dead) {
-      ctx.fillStyle = '#e05555'; ctx.font = '700 20px Georgia, serif'; ctx.textAlign = 'center';
-      ctx.fillText(cur === 'zh' ? '坠毁了！点击再来一局' : 'Crashed! Click to fly again', W / 2, H / 2 - 10);
-      ctx.fillStyle = '#b8b0a3'; ctx.font = '14px sans-serif';
-      ctx.fillText((cur === 'zh' ? '本局 ' : 'score ') + score + ' m · ' + (cur === 'zh' ? '最高 ' : 'best ') + best + ' m', W / 2, H / 2 + 16);
-      ctx.textAlign = 'left';
-    }
-  }
-
-  function loop() {
-    ctx.clearRect(0, 0, W, H);
-    // 背景地平线
-    ctx.strokeStyle = '#262019'; ctx.beginPath(); ctx.moveTo(0, H - 12); ctx.lineTo(W, H - 12); ctx.stroke();
-
-    if (playing) {
-      frame++;
-      vy += holding ? LIFT : G;
-      vy = Math.max(-2.4, Math.min(2.4, vy));
-      y += vy;
-      dist += speed;
-      score = Math.floor(dist / 10);
-      if (frame % 115 === 0) spawnOb();
-      if (frame % 2400 === 0) speed += 0.2; // 渐进加速（放缓）
-      for (const o of obs) o.x -= speed;
-      obs = obs.filter(o => o.x > -OB_W - 10);
-      if (y < 0 || y > H - 12) crash();
-      for (const o of obs) {
-        if (x + 9 > o.x && x - 9 < o.x + OB_W && (y - 6 < o.gapY || y + 6 > o.gapY + o.gapH)) crash();
-      }
-    }
-    drawObs(); drawPlane(); hud();
-    requestAnimationFrame(loop);
-  }
-  loop();
-
-  function down(e) { e.preventDefault(); if (!playing) { if (dead || true) start(); } holding = true; }
-  function up() { holding = false; }
-  cv.addEventListener('pointerdown', down);
-  window.addEventListener('pointerup', up);
-  window.addEventListener('keydown', e => { if (e.code === 'Space') { e.preventDefault(); if (!playing) start(); holding = true; } });
-  window.addEventListener('keyup', e => { if (e.code === 'Space') holding = false; });
-
-  /* Konami 彩蛋：红笔雨（障碍变红笔） */
   const code = ['ArrowUp','ArrowUp','ArrowDown','ArrowDown','ArrowLeft','ArrowRight','ArrowLeft','ArrowRight','b','a'];
   let pos = 0;
   window.addEventListener('keydown', e => {
     pos = (e.key === code[pos]) ? pos + 1 : (e.key === code[0] ? 1 : 0);
-    if (pos === code.length) { pos = 0; rain = !rain; }
+    if (pos === code.length) { pos = 0; window.__redRain = !window.__redRain; }
   });
-})();
-
-
-/* ================= 迷你机台 x3 ================= */
-(function () {
-  const z = document.getElementById('reactZone'), bestEl = document.getElementById('reactBest');
-  let state = 'idle', t0 = 0, timer = null;
-  let best = parseInt(localStorage.getItem('reactBest') || '0', 10);
-  const sync = () => { bestEl.textContent = 'best: ' + (best ? best + 'ms' : '—'); };
-  sync();
-  function set(cls, txt) { z.className = cls; z.textContent = txt; }
-  function arm() {
-    state = 'wait'; set('wait', cur === 'zh' ? '等变绿…' : 'wait for green…');
-    timer = setTimeout(() => { state = 'go'; t0 = performance.now(); set('go', cur === 'zh' ? '点！' : 'TAP!'); }, 1500 + Math.random() * 2500);
-  }
-  z.addEventListener('pointerdown', () => {
-    if (state === 'idle' || state === 'early' || state === 'done') { arm(); return; }
-    if (state === 'wait') { clearTimeout(timer); state = 'early'; set('early', cur === 'zh' ? '太早了！' : 'too early!'); return; }
-    if (state === 'go') {
-      const ms = Math.round(performance.now() - t0);
-      if (!best || ms < best) { best = ms; localStorage.setItem('reactBest', String(ms)); }
-      sync(); state = 'done'; set('idle', ms + ' ms');
-      setTimeout(() => { state = 'idle'; }, 600);
-    }
-  });
-  set('idle', cur === 'zh' ? '点开始' : 'tap to start');
-})();
-
-(function () {
-  const cv = document.getElementById('catchCv'), ctx = cv.getContext('2d');
-  const bestEl = document.getElementById('catchBest'), livesEl = document.getElementById('catchLives');
-  let W = 0, H = 170;
-  function rs() { W = cv.clientWidth || 260; cv.width = W; cv.height = H; }
-  rs(); window.addEventListener('resize', rs);
-  let playing = false, bx = 0, balls = [], score = 0, lives = 3, frame = 0;
-  let best = parseInt(localStorage.getItem('catchBest') || '0', 10);
-  const sync = () => { bestEl.textContent = 'best: ' + best; livesEl.textContent = '♥'.repeat(Math.max(lives, 0)) || '💀'; };
-  sync();
-  cv.addEventListener('pointermove', e => { const r = cv.getBoundingClientRect(); bx = e.clientX - r.left; });
-  cv.addEventListener('pointerdown', () => { if (!playing) { playing = true; balls = []; score = 0; lives = 3; frame = 0; bx = W / 2; sync(); } });
-  function loop() {
-    ctx.clearRect(0, 0, W, H);
-    if (playing) {
-      frame++;
-      if (frame % Math.max(28, 55 - Math.floor(score / 5)) === 0) balls.push({ x: 12 + Math.random() * (W - 24), y: -8, v: 1.1 + Math.random() * 0.7 + score * 0.015 });
-      for (const b of balls) b.y += b.v;
-      balls = balls.filter(b => {
-        if (b.y > H - 22 && Math.abs(b.x - bx) < 26) { score++; return false; }
-        if (b.y > H + 6) { lives--; sync(); if (lives <= 0) { playing = false; if (score > best) { best = score; localStorage.setItem('catchBest', String(best)); } } return false; }
-        return true;
-      });
-      for (const b of balls) { ctx.font = '16px serif'; ctx.fillText('📄', b.x - 8, b.y); }
-      ctx.fillStyle = '#d9a03f'; ctx.fillRect(bx - 24, H - 14, 48, 9);
-      ctx.fillStyle = '#b8b0a3'; ctx.fillRect(bx - 20, H - 18, 40, 5);
-      ctx.fillStyle = '#ede8df'; ctx.font = '600 12px sans-serif'; ctx.fillText('score ' + score, 8, 16);
-    } else {
-      ctx.fillStyle = '#7a7367'; ctx.font = 'italic 13px Georgia,serif'; ctx.textAlign = 'center';
-      ctx.fillText(score > 0 ? (cur === 'zh' ? '本局 ' + score + ' · 点击再来' : 'score ' + score + ' · tap to retry') : (cur === 'zh' ? '点击开始 · 移动鼠标接纸团' : 'tap to start · move to catch'), W / 2, H / 2);
-      ctx.textAlign = 'left';
-    }
-    requestAnimationFrame(loop);
-  }
-  loop();
-})();
-
-(function () {
-  const SYMS = ['🍒', '🖊️', '📄', '✈️', '⭐', '🎲'];
-  const reels = [0, 1, 2].map(i => document.getElementById('reel' + i));
-  const msg = document.getElementById('slotMsg'), winsEl = document.getElementById('slotWins');
-  const lever = document.getElementById('lever');
-  let wins = parseInt(localStorage.getItem('slotWins') || '0', 10);
-  let spinning = false;
-  winsEl.textContent = 'jackpots: ' + wins;
-  function pull() {
-    if (spinning) return; spinning = true;
-    msg.className = ''; msg.textContent = '…';
-    reels.forEach(r => r.classList.add('spin'));
-    const finals = [];
-    const rigged = Math.random() < 0.12;
-    const rigSym = SYMS[Math.floor(Math.random() * SYMS.length)];
-    reels.forEach((r, i) => {
-      const iv = setInterval(() => { r.textContent = SYMS[Math.floor(Math.random() * SYMS.length)]; }, 90);
-      setTimeout(() => {
-        clearInterval(iv); r.classList.remove('spin');
-        finals[i] = rigged ? rigSym : SYMS[Math.floor(Math.random() * SYMS.length)];
-        r.textContent = finals[i];
-        if (finals.filter(x => x !== undefined).length === 3) {
-          const a = finals[0], b = finals[1], c = finals[2];
-          if (a === b && b === c) {
-            wins++; localStorage.setItem('slotWins', String(wins));
-            winsEl.textContent = 'jackpots: ' + wins;
-            msg.className = 'jackpot'; msg.textContent = cur === 'zh' ? '🎉 大满贯！' : '🎉 JACKPOT!';
-          } else if (a === b || b === c || a === c) {
-            msg.textContent = cur === 'zh' ? '差一点儿！' : 'so close!';
-          } else {
-            msg.textContent = cur === 'zh' ? '再来一杆' : 'pull again';
-          }
-          spinning = false;
-        }
-      }, 900 + i * 450);
-    });
-  }
-  lever.addEventListener('click', pull);
 })();
 /* ================= 背景尘埃粒子 ================= */
 (function () {
@@ -475,7 +257,7 @@ fetch('https://api.github.com/users/tywinlu1988/repos?per_page=100&sort=updated'
     x.clearRect(0, 0, w, h);
     for (const p of ps) {
       p.x = (p.x + p.vx + 1) % 1; p.y = (p.y + p.vy + 1) % 1;
-      x.globalAlpha = p.a; x.fillStyle = '#d9a03f';
+      x.globalAlpha = p.a; x.fillStyle = window.__redRain ? '#e05555' : '#d9a03f';
       x.beginPath(); x.arc(p.x * w, p.y * h, p.r, 0, 7); x.fill();
     }
     requestAnimationFrame(tick);
