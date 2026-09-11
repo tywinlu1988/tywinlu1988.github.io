@@ -190,9 +190,9 @@ fetch('https://api.github.com/users/tywinlu1988/repos?per_page=100&sort=updated'
   resize();
   window.addEventListener('resize', resize);
 
-  const G = 0.16, LIFT = -0.42, OB_W = 46, GAP = 150;
+  const G = 0.11, LIFT = -0.30, OB_W = 46, GAP = 190;
   let playing = false, dead = false, holding = false;
-  let y = H / 2, vy = 0, x = 120, speed = 3.2;
+  let y = H / 2, vy = 0, x = 120, speed = 2.4;
   let obs = [], dist = 0, score = 0, frame = 0;
   let best = parseInt(localStorage.getItem('gliderBest') || '0', 10);
   let rain = false; // 彩蛋：红笔雨
@@ -203,7 +203,7 @@ fetch('https://api.github.com/users/tywinlu1988/repos?per_page=100&sort=updated'
 
   function start() {
     playing = true; dead = false;
-    y = H / 2; vy = 0; obs = []; dist = 0; score = 0; frame = 0; speed = 3.2;
+    y = H / 2; vy = 0; obs = []; dist = 0; score = 0; frame = 0; speed = 2.4;
     document.getElementById('led').style.background = '#3fa873';
   }
   function crash() {
@@ -266,17 +266,17 @@ fetch('https://api.github.com/users/tywinlu1988/repos?per_page=100&sort=updated'
     if (playing) {
       frame++;
       vy += holding ? LIFT : G;
-      vy = Math.max(-5, Math.min(6, vy));
+      vy = Math.max(-4, Math.min(5, vy));
       y += vy;
       dist += speed;
       score = Math.floor(dist / 10);
-      if (frame % 90 === 0) spawnOb();
-      if (frame % 1200 === 0) speed += 0.3; // 渐进加速
+      if (frame % 115 === 0) spawnOb();
+      if (frame % 2400 === 0) speed += 0.2; // 渐进加速（放缓）
       for (const o of obs) o.x -= speed;
       obs = obs.filter(o => o.x > -OB_W - 10);
       if (y < 0 || y > H - 12) crash();
       for (const o of obs) {
-        if (x + 12 > o.x && x - 12 < o.x + OB_W && (y - 8 < o.gapY || y + 8 > o.gapY + o.gapH)) crash();
+        if (x + 9 > o.x && x - 9 < o.x + OB_W && (y - 6 < o.gapY || y + 6 > o.gapY + o.gapH)) crash();
       }
     }
     drawObs(); drawPlane(); hud();
