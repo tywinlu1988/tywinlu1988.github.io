@@ -62,6 +62,28 @@
   footer a { color:var(--red); text-decoration:none; }
   .egg { color:var(--faint); font-size:11px; margin-left:auto; }
 
+
+  /* 迷你机台行 */
+  .mini-row { display:grid; grid-template-columns:repeat(auto-fit,minmax(240px,1fr)); gap:14px; margin-top:14px; }
+  .mini-cab { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:12px; box-shadow:0 6px 24px rgba(0,0,0,.35); }
+  .mini-title { font-family:Georgia,serif; font-size:12.5px; color:var(--ochre); letter-spacing:.08em; padding-bottom:8px; }
+  .mini-screen { border-radius:6px; border:1px solid #000; background:#0d0b0a; overflow:hidden; position:relative; }
+  .mini-foot { font-size:11px; color:var(--faint); padding-top:8px; display:flex; justify-content:space-between; }
+  #reactZone { height:150px; display:flex; align-items:center; justify-content:center; text-align:center; cursor:pointer; user-select:none; font-size:14px; padding:12px; transition:background .1s; }
+  #reactZone.wait { background:#3a2220; color:#b8b0a3; }
+  #reactZone.go { background:#1f3325; color:#3fa873; font-weight:700; font-size:18px; }
+  #reactZone.idle { background:#0d0b0a; color:#7a7367; }
+  #reactZone.early { background:#33201c; color:#e05555; }
+  .reels { display:flex; gap:8px; justify-content:center; padding:18px 0 10px; }
+  .reel { width:56px; height:56px; background:#262019; border:1px solid var(--line); border-radius:8px; font-size:30px; display:flex; align-items:center; justify-content:center; }
+  .reel.spin { animation:reelspin .12s linear infinite; }
+  @keyframes reelspin { 0%{transform:translateY(-3px)} 50%{transform:translateY(3px)} 100%{transform:translateY(-3px)} }
+  .lever { display:block; margin:4px auto 2px; background:var(--red); color:#fff; border:none; border-radius:6px; padding:7px 22px; font-size:13px; font-weight:700; cursor:pointer; }
+  .lever:active { transform:scale(.96); }
+  #slotMsg { text-align:center; font-size:12.5px; min-height:18px; color:var(--soft); }
+  #slotMsg.jackpot { color:var(--ochre); font-weight:700; animation:flash .4s alternate 6; }
+  @keyframes flash { from{opacity:.4} to{opacity:1} }
+  #catchCv { display:block; width:100%; height:170px; cursor:none; touch-action:none; }
   [data-l] { display:none; } [data-l].on { display:block; }
 </style>
 </head>
@@ -92,6 +114,41 @@
     </div>
   </div>
 
+
+  <!-- 迷你机台行 -->
+  <section>
+    <h2 data-l="en" class="on" id="mg-en">More machines</h2>
+    <h2 data-l="zh" id="mg-zh">更多机台</h2>
+    <div class="mini-row">
+
+      <div class="mini-cab">
+        <div class="mini-title">&#9889; REACTION</div>
+        <div class="mini-screen"><div id="reactZone" class="idle">wait…</div></div>
+        <div class="mini-foot"><span id="reactBest">best: —</span><span>tap when green</span></div>
+      </div>
+
+      <div class="mini-cab">
+        <div class="mini-title">&#129530; PAPER CATCH</div>
+        <div class="mini-screen"><canvas id="catchCv" height="170"></canvas></div>
+        <div class="mini-foot"><span id="catchBest">best: 0</span><span id="catchLives">&#10083;&#10083;&#10083;</span></div>
+      </div>
+
+      <div class="mini-cab">
+        <div class="mini-title">&#127920; LUCKY SLOTS</div>
+        <div class="mini-screen">
+          <div class="reels">
+            <div class="reel" id="reel0">&#127826;</div>
+            <div class="reel" id="reel1">&#128394;&#65038;</div>
+            <div class="reel" id="reel2">&#9992;&#65038;</div>
+          </div>
+          <div id="slotMsg">—</div>
+          <button class="lever" id="lever">PULL</button>
+        </div>
+        <div class="mini-foot"><span id="slotWins">jackpots: 0</span><span>3 of a kind!</span></div>
+      </div>
+
+    </div>
+  </section>
   <section>
     <h2 data-l="en" class="on" id="p-en">Products on the shelf · GitHub live feed</h2>
     <h2 data-l="zh" id="p-zh">架子上的产品 · GitHub 实时同步</h2>
@@ -147,7 +204,7 @@
 <script>
 /* ================= 语言切换 ================= */
 let cur = 'en';
-const ids = ['t-en','t-zh','h-en','h-zh','s-en','s-zh','r-en','r-zh','p-en','p-zh','e-en','e-zh'];
+const ids = ['t-en','t-zh','h-en','h-zh','s-en','s-zh','r-en','r-zh','p-en','p-zh','e-en','e-zh','mg-en','mg-zh'];
 function applyLang() {
   ids.forEach(id => { const el = document.getElementById(id); if (el) el.classList.toggle('on', id.endsWith(cur)); });
   document.getElementById('sv-en').classList.toggle('on', cur === 'en');
@@ -300,6 +357,108 @@ fetch('https://api.github.com/users/tywinlu1988/repos?per_page=100&sort=updated'
   });
 })();
 
+
+/* ================= 迷你机台 x3 ================= */
+(function () {
+  const z = document.getElementById('reactZone'), bestEl = document.getElementById('reactBest');
+  let state = 'idle', t0 = 0, timer = null;
+  let best = parseInt(localStorage.getItem('reactBest') || '0', 10);
+  const sync = () => { bestEl.textContent = 'best: ' + (best ? best + 'ms' : '—'); };
+  sync();
+  function set(cls, txt) { z.className = cls; z.textContent = txt; }
+  function arm() {
+    state = 'wait'; set('wait', cur === 'zh' ? '等变绿…' : 'wait for green…');
+    timer = setTimeout(() => { state = 'go'; t0 = performance.now(); set('go', cur === 'zh' ? '点！' : 'TAP!'); }, 1500 + Math.random() * 2500);
+  }
+  z.addEventListener('pointerdown', () => {
+    if (state === 'idle' || state === 'early' || state === 'done') { arm(); return; }
+    if (state === 'wait') { clearTimeout(timer); state = 'early'; set('early', cur === 'zh' ? '太早了！' : 'too early!'); return; }
+    if (state === 'go') {
+      const ms = Math.round(performance.now() - t0);
+      if (!best || ms < best) { best = ms; localStorage.setItem('reactBest', String(ms)); }
+      sync(); state = 'done'; set('idle', ms + ' ms');
+      setTimeout(() => { state = 'idle'; }, 600);
+    }
+  });
+  set('idle', cur === 'zh' ? '点开始' : 'tap to start');
+})();
+
+(function () {
+  const cv = document.getElementById('catchCv'), ctx = cv.getContext('2d');
+  const bestEl = document.getElementById('catchBest'), livesEl = document.getElementById('catchLives');
+  let W = 0, H = 170;
+  function rs() { W = cv.clientWidth || 260; cv.width = W; cv.height = H; }
+  rs(); window.addEventListener('resize', rs);
+  let playing = false, bx = 0, balls = [], score = 0, lives = 3, frame = 0;
+  let best = parseInt(localStorage.getItem('catchBest') || '0', 10);
+  const sync = () => { bestEl.textContent = 'best: ' + best; livesEl.textContent = '♥'.repeat(Math.max(lives, 0)) || '💀'; };
+  sync();
+  cv.addEventListener('pointermove', e => { const r = cv.getBoundingClientRect(); bx = e.clientX - r.left; });
+  cv.addEventListener('pointerdown', () => { if (!playing) { playing = true; balls = []; score = 0; lives = 3; frame = 0; bx = W / 2; sync(); } });
+  function loop() {
+    ctx.clearRect(0, 0, W, H);
+    if (playing) {
+      frame++;
+      if (frame % Math.max(28, 55 - Math.floor(score / 5)) === 0) balls.push({ x: 12 + Math.random() * (W - 24), y: -8, v: 1.1 + Math.random() * 0.7 + score * 0.015 });
+      for (const b of balls) b.y += b.v;
+      balls = balls.filter(b => {
+        if (b.y > H - 22 && Math.abs(b.x - bx) < 26) { score++; return false; }
+        if (b.y > H + 6) { lives--; sync(); if (lives <= 0) { playing = false; if (score > best) { best = score; localStorage.setItem('catchBest', String(best)); } } return false; }
+        return true;
+      });
+      for (const b of balls) { ctx.font = '16px serif'; ctx.fillText('📄', b.x - 8, b.y); }
+      ctx.fillStyle = '#d9a03f'; ctx.fillRect(bx - 24, H - 14, 48, 9);
+      ctx.fillStyle = '#b8b0a3'; ctx.fillRect(bx - 20, H - 18, 40, 5);
+      ctx.fillStyle = '#ede8df'; ctx.font = '600 12px sans-serif'; ctx.fillText('score ' + score, 8, 16);
+    } else {
+      ctx.fillStyle = '#7a7367'; ctx.font = 'italic 13px Georgia,serif'; ctx.textAlign = 'center';
+      ctx.fillText(score > 0 ? (cur === 'zh' ? '本局 ' + score + ' · 点击再来' : 'score ' + score + ' · tap to retry') : (cur === 'zh' ? '点击开始 · 移动鼠标接纸团' : 'tap to start · move to catch'), W / 2, H / 2);
+      ctx.textAlign = 'left';
+    }
+    requestAnimationFrame(loop);
+  }
+  loop();
+})();
+
+(function () {
+  const SYMS = ['🍒', '🖊️', '📄', '✈️', '⭐', '🎲'];
+  const reels = [0, 1, 2].map(i => document.getElementById('reel' + i));
+  const msg = document.getElementById('slotMsg'), winsEl = document.getElementById('slotWins');
+  const lever = document.getElementById('lever');
+  let wins = parseInt(localStorage.getItem('slotWins') || '0', 10);
+  let spinning = false;
+  winsEl.textContent = 'jackpots: ' + wins;
+  function pull() {
+    if (spinning) return; spinning = true;
+    msg.className = ''; msg.textContent = '…';
+    reels.forEach(r => r.classList.add('spin'));
+    const finals = [];
+    const rigged = Math.random() < 0.12;
+    const rigSym = SYMS[Math.floor(Math.random() * SYMS.length)];
+    reels.forEach((r, i) => {
+      const iv = setInterval(() => { r.textContent = SYMS[Math.floor(Math.random() * SYMS.length)]; }, 90);
+      setTimeout(() => {
+        clearInterval(iv); r.classList.remove('spin');
+        finals[i] = rigged ? rigSym : SYMS[Math.floor(Math.random() * SYMS.length)];
+        r.textContent = finals[i];
+        if (finals.filter(x => x !== undefined).length === 3) {
+          const a = finals[0], b = finals[1], c = finals[2];
+          if (a === b && b === c) {
+            wins++; localStorage.setItem('slotWins', String(wins));
+            winsEl.textContent = 'jackpots: ' + wins;
+            msg.className = 'jackpot'; msg.textContent = cur === 'zh' ? '🎉 大满贯！' : '🎉 JACKPOT!';
+          } else if (a === b || b === c || a === c) {
+            msg.textContent = cur === 'zh' ? '差一点儿！' : 'so close!';
+          } else {
+            msg.textContent = cur === 'zh' ? '再来一杆' : 'pull again';
+          }
+          spinning = false;
+        }
+      }, 900 + i * 450);
+    });
+  }
+  lever.addEventListener('click', pull);
+})();
 /* ================= 背景尘埃粒子 ================= */
 (function () {
   const c = document.getElementById('dust'), x = c.getContext('2d');
