@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Tywin Lu — Indie Developer · AI Tools</title>
+<meta name="description" content="Tywin Lu builds AI-powered writing and thinking tools. Creator of Contra, the devil's advocate for writers. Available for custom development.">
+<style>
+  :root {
+    --paper: #faf8f3; --card: #fffdf8; --ink: #1c1917; --ink-soft: #57534e; --ink-faint: #a8a29e;
+    --border: #e7d9c9; --red: #b91c1c; --ochre: #a16207; --green: #166534;
+  }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { background:var(--paper); color:var(--ink); font-family:-apple-system,'Segoe UI','PingFang SC','Microsoft YaHei',sans-serif; line-height:1.6; }
+  .serif { font-family:Georgia,'Songti SC','STSong',serif; }
+  .wrap { max-width:760px; margin:0 auto; padding:0 24px; }
+
+  header { border-bottom:2px solid var(--ink); padding:36px 0 18px; }
+  .lang-toggle { float:right; font-size:13px; color:var(--ink-faint); cursor:pointer; border:1px solid var(--border); border-radius:99px; padding:4px 12px; background:var(--card); }
+  .lang-toggle:hover { color:var(--ink); }
+  h1.name { font-size:34px; font-weight:700; letter-spacing:-.01em; }
+  .tagline { color:var(--ochre); font-style:italic; font-size:16px; margin-top:2px; }
+
+  section { padding:34px 0 6px; }
+  h2 { font-size:13px; letter-spacing:.16em; text-transform:uppercase; color:var(--ink-faint); font-weight:700; margin-bottom:16px; }
+
+  .card { background:var(--card); border:1px solid var(--border); border-radius:6px; padding:22px 24px; box-shadow:2px 2px 0 rgba(28,25,23,.05); }
+  .product-head { display:flex; align-items:center; gap:12px; margin-bottom:10px; }
+  .logo { width:40px; height:40px; border-radius:9px; }
+  .product-name { font-size:20px; font-weight:700; }
+  .product-sub { color:var(--ochre); font-style:italic; font-size:14px; }
+  .product p { color:var(--ink-soft); font-size:15px; }
+  .shots { display:grid; grid-template-columns:1fr 1fr 1fr; gap:10px; margin:16px 0; }
+  .shots img { width:100%; border:1px solid var(--border); border-radius:4px; display:block; }
+  .tags { display:flex; flex-wrap:wrap; gap:8px; margin-top:12px; }
+  .tag { font-size:12px; color:var(--ink-soft); border:1px solid var(--border); border-radius:99px; padding:3px 10px; background:var(--paper); }
+
+  .svc { display:grid; grid-template-columns:1fr 1fr 1fr; gap:12px; }
+  .svc .card { padding:16px 18px; }
+  .svc h3 { font-size:14.5px; margin-bottom:5px; color:var(--red); }
+  .svc p { font-size:13px; color:var(--ink-soft); }
+
+  .cta { display:flex; gap:12px; margin-top:8px; flex-wrap:wrap; }
+  .btn { display:inline-block; text-decoration:none; font-size:14px; font-weight:600; border-radius:4px; padding:9px 18px; transition:opacity .15s; }
+  .btn:hover { opacity:.85; }
+  .btn-dark { background:var(--ink); color:var(--paper); }
+  .btn-line { border:1px solid var(--ink-soft); color:var(--ink-soft); }
+
+  footer { margin-top:40px; border-top:1px solid var(--border); padding:18px 0 40px; font-size:12.5px; color:var(--ink-faint); }
+  a { color:var(--red); }
+  [data-lang] { display:none; }
+  [data-lang].on { display:block; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <span class="lang-toggle" id="langBtn">中文</span>
+    <h1 class="name serif">Tywin Lu</h1>
+    <div class="tagline serif" data-lang="en" id="t-en">Indie developer building AI tools that make you think harder.</div>
+    <div class="tagline serif" data-lang="zh" id="t-zh">独立开发者，打造让你想得更深的 AI 工具。</div>
+  </header>
+
+  <section data-lang="en" class="on" id="en">
+    <h2>Products</h2>
+    <div class="card product">
+      <div class="product-head">
+        <img class="logo" src="assets/logo-128.png" alt="Contra logo">
+        <div>
+          <div class="product-name serif">Contra</div>
+          <div class="product-sub serif">The devil's advocate for writers — Chrome &amp; Edge extension</div>
+        </div>
+      </div>
+      <p>Publish nothing your harshest reader hasn't already attacked. Contra runs three adversarial AI editors in parallel — a hostile reviewer, a blind-spot hunter, and a steel-man rewriter — stress-testing your draft before the internet does. Private by architecture: BYOK with seven providers, zero telemetry, no accounts.</p>
+      <div class="shots">
+        <img src="assets/promo-1-hero.png" alt="Contra hero">
+        <img src="assets/promo-2-redpen.png" alt="Contra red-pen review">
+        <img src="assets/promo-3-privacy.png" alt="Contra privacy">
+      </div>
+      <div class="tags">
+        <span class="tag">Adversarial multi-core engine</span>
+        <span class="tag">BYOK · 7 providers</span>
+        <span class="tag">Zero telemetry</span>
+        <span class="tag">Free</span>
+      </div>
+      <div class="cta">
+        <a class="btn btn-dark" href="https://github.com/tywinlu1988/contra">GitHub →</a>
+      </div>
+    </div>
+
+    <h2 style="margin-top:30px;">Custom Development</h2>
+    <div class="svc">
+      <div class="card">
+        <h3>AI-Powered Tools</h3>
+        <p>From prompt pipelines to multi-agent orchestration, with measurable quality gates (eval frameworks, not vibes).</p>
+      </div>
+      <div class="card">
+        <h3>Browser Extensions</h3>
+        <p>Chrome/Edge MV3 extensions end-to-end: architecture, store review, and post-launch iteration.</p>
+      </div>
+      <div class="card">
+        <h3>Product Engineering</h3>
+        <p>Fast prototypes to production: TypeScript/React, design systems, docs that ship.</p>
+      </div>
+    </div>
+
+    <h2 style="margin-top:30px;">Contact</h2>
+    <p style="color:var(--ink-soft); font-size:15px;">Open to custom development and collaboration. Fastest way to reach me:</p>
+    <div class="cta">
+      <a class="btn btn-dark" href="https://github.com/tywinlu1988">GitHub @tywinlu1988</a>
+    </div>
+  </section>
+
+  <section data-lang="zh" id="zh">
+    <h2>产品</h2>
+    <div class="card product">
+      <div class="product-head">
+        <img class="logo" src="assets/logo-128.png" alt="Contra logo">
+        <div>
+          <div class="product-name serif">Contra</div>
+          <div class="product-sub serif">写作者的魔鬼代言人 · Chrome / Edge 扩展</div>
+        </div>
+      </div>
+      <p>不要发布任何未经最刻薄读者攻击过的文章。Contra 用三个对抗性 AI 编辑并行审稿——苛刻挑刺者、盲区猎犬、立论锻造师——在互联网骂你之前先把你骂一遍。架构级隐私：七家供应商 BYOK、零遥测、无账号。</p>
+      <div class="shots">
+        <img src="assets/promo-1-hero.png" alt="Contra 主视觉">
+        <img src="assets/promo-2-redpen.png" alt="Contra 红笔批改">
+        <img src="assets/promo-3-privacy.png" alt="Contra 隐私">
+      </div>
+      <div class="tags">
+        <span class="tag">对抗式多核引擎</span>
+        <span class="tag">BYOK · 七家供应商</span>
+        <span class="tag">零遥测</span>
+        <span class="tag">免费</span>
+      </div>
+      <div class="cta">
+        <a class="btn btn-dark" href="https://github.com/tywinlu1988/contra">GitHub →</a>
+      </div>
+    </div>
+
+    <h2 style="margin-top:30px;">定制开发</h2>
+    <div class="svc">
+      <div class="card">
+        <h3>AI 工具开发</h3>
+        <p>从 prompt 管线到多智能体编排，带可量化的质量门槛（评测体系，不凭感觉）。</p>
+      </div>
+      <div class="card">
+        <h3>浏览器扩展</h3>
+        <p>Chrome/Edge MV3 扩展全流程：架构设计、商店审核、上线后迭代。</p>
+      </div>
+      <div class="card">
+        <h3>产品工程</h3>
+        <p>从快速原型到生产交付：TypeScript/React、设计系统、能交付的文档。</p>
+      </div>
+    </div>
+
+    <h2 style="margin-top:30px;">联系</h2>
+    <p style="color:var(--ink-soft); font-size:15px;">承接定制开发与合作，最快的联系方式：</p>
+    <div class="cta">
+      <a class="btn btn-dark" href="https://github.com/tywinlu1988">GitHub @tywinlu1988</a>
+    </div>
+  </section>
+
+  <footer>
+    © 2026 Tywin Lu · Built with plain HTML, hosted on GitHub Pages · <a href="https://github.com/tywinlu1988/contra">Contra</a>
+  </footer>
+</div>
+<script>
+  const btn = document.getElementById('langBtn');
+  const en = document.getElementById('en'), zh = document.getElementById('zh');
+  const te = document.getElementById('t-en'), tz = document.getElementById('t-zh');
+  let cur = 'en';
+  function apply() {
+    en.classList.toggle('on', cur === 'en'); zh.classList.toggle('on', cur === 'zh');
+    te.classList.toggle('on', cur === 'en'); tz.classList.toggle('on', cur === 'zh');
+    btn.textContent = cur === 'en' ? '中文' : 'EN';
+  }
+  btn.addEventListener('click', () => { cur = cur === 'en' ? 'zh' : 'en'; apply(); });
+  apply();
+</script>
+</body>
+</html>
