@@ -217,9 +217,6 @@ class ArenaScene extends Phaser.Scene {
     e.dmg = kind === 'brute' ? 16 : 10;
     e.nextShot = 0;
     e.setCollideWorldBounds(true);
-    e.push({
-      on: true, x, y,
-    });
   }
 
   showBanner(txt) {
