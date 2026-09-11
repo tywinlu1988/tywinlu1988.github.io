@@ -3,180 +3,325 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Tywin Lu — Indie Developer · AI Tools</title>
-<meta name="description" content="Tywin Lu builds AI-powered writing and thinking tools. Creator of Contra, the devil's advocate for writers. Available for custom development.">
+<title>Tywin Lu's Arcade — Indie Developer</title>
+<meta name="description" content="Tywin Lu builds AI tools. Come play a game and check out the projects.">
 <style>
   :root {
-    --paper: #faf8f3; --card: #fffdf8; --ink: #1c1917; --ink-soft: #57534e; --ink-faint: #a8a29e;
-    --border: #e7d9c9; --red: #b91c1c; --ochre: #a16207; --green: #166534;
+    --bg: #14110f; --panel: #1e1a17; --panel2: #262019; --line: #3a2f26;
+    --ink: #ede8df; --soft: #b8b0a3; --faint: #7a7367;
+    --red: #e05555; --ochre: #d9a03f; --green: #3fa873;
   }
   * { margin:0; padding:0; box-sizing:border-box; }
-  body { background:var(--paper); color:var(--ink); font-family:-apple-system,'Segoe UI','PingFang SC','Microsoft YaHei',sans-serif; line-height:1.6; }
+  body { background:var(--bg); color:var(--ink); font-family:-apple-system,'Segoe UI','PingFang SC','Microsoft YaHei',sans-serif; line-height:1.6; overflow-x:hidden; }
   .serif { font-family:Georgia,'Songti SC','STSong',serif; }
-  .wrap { max-width:760px; margin:0 auto; padding:0 24px; }
+  .wrap { max-width:880px; margin:0 auto; padding:0 20px; position:relative; z-index:2; }
 
-  header { border-bottom:2px solid var(--ink); padding:36px 0 18px; }
-  .lang-toggle { float:right; font-size:13px; color:var(--ink-faint); cursor:pointer; border:1px solid var(--border); border-radius:99px; padding:4px 12px; background:var(--card); }
-  .lang-toggle:hover { color:var(--ink); }
-  h1.name { font-size:34px; font-weight:700; letter-spacing:-.01em; }
-  .tagline { color:var(--ochre); font-style:italic; font-size:16px; margin-top:2px; }
+  #dust { position:fixed; inset:0; z-index:0; pointer-events:none; }
 
-  section { padding:34px 0 6px; }
-  h2 { font-size:13px; letter-spacing:.16em; text-transform:uppercase; color:var(--ink-faint); font-weight:700; margin-bottom:16px; }
+  header { padding:30px 0 14px; display:flex; align-items:baseline; gap:14px; border-bottom:2px solid var(--red); }
+  h1 { font-size:30px; font-weight:700; letter-spacing:-.01em; }
+  h1 .red { color:var(--red); }
+  .tag { color:var(--ochre); font-style:italic; font-size:15px; }
+  .lang { margin-left:auto; font-size:12.5px; color:var(--faint); cursor:pointer; border:1px solid var(--line); border-radius:99px; padding:3px 12px; background:var(--panel); }
+  .lang:hover { color:var(--ink); }
 
-  .card { background:var(--card); border:1px solid var(--border); border-radius:6px; padding:22px 24px; box-shadow:2px 2px 0 rgba(28,25,23,.05); }
-  .product-head { display:flex; align-items:center; gap:12px; margin-bottom:10px; }
-  .logo { width:40px; height:40px; border-radius:9px; }
-  .product-name { font-size:20px; font-weight:700; }
-  .product-sub { color:var(--ochre); font-style:italic; font-size:14px; }
-  .product p { color:var(--ink-soft); font-size:15px; }
-  .shots { display:grid; grid-template-columns:1fr 1fr 1fr; gap:10px; margin:16px 0; }
-  .shots img { width:100%; border:1px solid var(--border); border-radius:4px; display:block; }
-  .tags { display:flex; flex-wrap:wrap; gap:8px; margin-top:12px; }
-  .tag { font-size:12px; color:var(--ink-soft); border:1px solid var(--border); border-radius:99px; padding:3px 10px; background:var(--paper); }
+  /* 街机框 */
+  .cab { margin-top:26px; background:var(--panel); border:1px solid var(--line); border-radius:14px; padding:14px 14px 10px; box-shadow:0 10px 40px rgba(0,0,0,.5), inset 0 0 0 1px rgba(237,232,223,.03); }
+  .cab-top { display:flex; align-items:center; gap:10px; padding:0 4px 10px; }
+  .cab-title { font-family:Georgia,serif; font-size:14px; color:var(--ochre); letter-spacing:.08em; }
+  .cab-hint { margin-left:auto; font-size:11.5px; color:var(--faint); }
+  .screen { border-radius:8px; overflow:hidden; border:1px solid #000; background:#0d0b0a; }
+  canvas { display:block; width:100%; cursor:pointer; touch-action:none; }
+  .cab-bottom { display:flex; align-items:center; gap:14px; padding:10px 4px 2px; font-size:12px; color:var(--faint); }
+  .led { width:8px; height:8px; border-radius:99px; background:var(--green); box-shadow:0 0 8px var(--green); }
 
-  .svc { display:grid; grid-template-columns:1fr 1fr 1fr; gap:12px; }
-  .svc .card { padding:16px 18px; }
-  .svc h3 { font-size:14.5px; margin-bottom:5px; color:var(--red); }
-  .svc p { font-size:13px; color:var(--ink-soft); }
+  section { margin-top:40px; }
+  h2 { font-size:12.5px; letter-spacing:.18em; text-transform:uppercase; color:var(--faint); font-weight:700; margin-bottom:14px; }
 
-  .cta { display:flex; gap:12px; margin-top:8px; flex-wrap:wrap; }
-  .btn { display:inline-block; text-decoration:none; font-size:14px; font-weight:600; border-radius:4px; padding:9px 18px; transition:opacity .15s; }
-  .btn:hover { opacity:.85; }
-  .btn-dark { background:var(--ink); color:var(--paper); }
-  .btn-line { border:1px solid var(--ink-soft); color:var(--ink-soft); }
+  .shelf { display:grid; grid-template-columns:repeat(auto-fill,minmax(240px,1fr)); gap:14px; }
+  .machine { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:16px 18px; transition:transform .18s ease, border-color .18s; position:relative; overflow:hidden; }
+  .machine:hover { transform:translateY(-3px); border-color:var(--red); }
+  .machine .m-name { font-weight:700; font-size:15.5px; display:flex; align-items:center; gap:8px; }
+  .machine .m-desc { font-size:13px; color:var(--soft); margin-top:5px; min-height:38px; }
+  .machine .m-meta { font-size:11.5px; color:var(--faint); margin-top:10px; display:flex; gap:10px; }
+  .machine a { color:var(--red); text-decoration:none; font-size:12.5px; font-weight:600; }
+  .machine .featured-badge { position:absolute; top:0; right:0; background:var(--red); color:#fff; font-size:10px; font-weight:700; padding:2px 10px; border-radius:0 10px 0 10px; letter-spacing:.1em; }
+  .machine.featured { grid-column:1/-1; display:grid; grid-template-columns:1.2fr 1fr; gap:16px; border-color:#5b2320; background:linear-gradient(180deg,var(--panel),#1a1310); }
+  .machine.featured:hover { border-color:var(--red); }
+  .machine.featured img { width:100%; border-radius:6px; border:1px solid var(--line); display:block; }
+  .machine.featured .m-desc { font-size:14px; min-height:0; }
+  .m-tags { display:flex; flex-wrap:wrap; gap:6px; margin-top:10px; }
+  .m-tags span { font-size:11px; color:var(--soft); border:1px solid var(--line); border-radius:99px; padding:2px 9px; }
 
-  footer { margin-top:40px; border-top:1px solid var(--border); padding:18px 0 40px; font-size:12.5px; color:var(--ink-faint); }
-  a { color:var(--red); }
-  [data-lang] { display:none; }
-  [data-lang].on { display:block; }
+  .svc { display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:12px; }
+  .svc .machine { padding:14px 16px; }
+  .svc h3 { font-size:14px; color:var(--red); margin-bottom:4px; }
+  .svc p { font-size:12.5px; color:var(--soft); }
+
+  footer { margin-top:44px; border-top:1px solid var(--line); padding:16px 0 40px; font-size:12px; color:var(--faint); display:flex; gap:14px; flex-wrap:wrap; }
+  footer a { color:var(--red); text-decoration:none; }
+  .egg { color:var(--faint); font-size:11px; margin-left:auto; }
+
+  [data-l] { display:none; } [data-l].on { display:block; }
 </style>
 </head>
 <body>
+<canvas id="dust"></canvas>
 <div class="wrap">
   <header>
-    <span class="lang-toggle" id="langBtn">中文</span>
-    <h1 class="name serif">Tywin Lu</h1>
-    <div class="tagline serif" data-lang="en" id="t-en">Indie developer building AI tools that make you think harder.</div>
-    <div class="tagline serif" data-lang="zh" id="t-zh">独立开发者，打造让你想得更深的 AI 工具。</div>
+    <h1 class="serif">Tywin's <span class="red">Arcade</span></h1>
+    <div class="tag serif" data-l="en" id="t-en">indie developer · builds AI tools that make you think harder</div>
+    <div class="tag serif" data-l="zh" id="t-zh">独立开发者 · 打造让你想得更深的 AI 工具</div>
+    <span class="lang" id="langBtn">中文</span>
   </header>
 
-  <section data-lang="en" class="on" id="en">
-    <h2>Products</h2>
-    <div class="card product">
-      <div class="product-head">
-        <img class="logo" src="assets/logo-128.png" alt="Contra logo">
+  <!-- 小游戏：纸飞机 -->
+  <div class="cab">
+    <div class="cab-top">
+      <span class="led" id="led"></span>
+      <span class="cab-title">✈ PAPER GLIDER</span>
+      <span class="cab-hint" data-l="en" id="h-en">hold Space / mouse to climb · release to dive</span>
+      <span class="cab-hint" data-l="zh" id="h-zh">按住 空格/鼠标 爬升 · 松开俯冲</span>
+    </div>
+    <div class="screen"><canvas id="game" height="300"></canvas></div>
+    <div class="cab-bottom">
+      <span data-l="en" id="s-en">best: <b id="best">0</b> m</span>
+      <span data-l="zh" id="s-zh">最高纪录：<b id="best2">0</b> m</span>
+      <span style="margin-left:auto" data-l="en" id="r-en">click the screen to start</span>
+      <span style="margin-left:auto" data-l="zh" id="r-zh">点击屏幕开始</span>
+    </div>
+  </div>
+
+  <section>
+    <h2 data-l="en" class="on" id="p-en">Products on the shelf · GitHub live feed</h2>
+    <h2 data-l="zh" id="p-zh">架子上的产品 · GitHub 实时同步</h2>
+    <div class="shelf" id="shelf">
+      <div class="machine featured" data-l="en" class="on" id="feat-en">
         <div>
-          <div class="product-name serif">Contra</div>
-          <div class="product-sub serif">The devil's advocate for writers — Chrome &amp; Edge extension</div>
+          <div class="featured-badge">FEATURED</div>
+          <div class="m-name">🔴 Contra</div>
+          <div class="m-desc" style="margin-top:8px;">The devil's advocate for writers. Three adversarial AI editors attack your draft before the internet does — hostile review, blind spots, steel-man rewrites. BYOK, zero telemetry, free.</div>
+          <div class="m-tags"><span>Chrome / Edge</span><span>MV3</span><span>BYOK × 7 providers</span><span>Zero telemetry</span></div>
+          <div style="margin-top:12px;"><a href="https://github.com/tywinlu1988/contra">GitHub →</a></div>
         </div>
+        <img src="assets/promo-2-redpen.png" alt="Contra red-pen review" loading="lazy">
       </div>
-      <p>Publish nothing your harshest reader hasn't already attacked. Contra runs three adversarial AI editors in parallel — a hostile reviewer, a blind-spot hunter, and a steel-man rewriter — stress-testing your draft before the internet does. Private by architecture: BYOK with seven providers, zero telemetry, no accounts.</p>
-      <div class="shots">
-        <img src="assets/promo-1-hero.png" alt="Contra hero">
-        <img src="assets/promo-2-redpen.png" alt="Contra red-pen review">
-        <img src="assets/promo-3-privacy.png" alt="Contra privacy">
+      <div class="machine featured" data-l="zh" id="feat-zh" style="display:none;">
+        <div>
+          <div class="featured-badge">主打</div>
+          <div class="m-name">🔴 Contra</div>
+          <div class="m-desc" style="margin-top:8px;">写作者的魔鬼代言人。三个对抗性 AI 编辑在互联网骂你之前先把你骂一遍——挑刺、盲区、防杠改写。BYOK、零遥测、免费。</div>
+          <div class="m-tags"><span>Chrome / Edge</span><span>MV3</span><span>BYOK × 7 家</span><span>零遥测</span></div>
+          <div style="margin-top:12px;"><a href="https://github.com/tywinlu1988/contra">GitHub →</a></div>
+        </div>
+        <img src="assets/promo-2-redpen.png" alt="Contra 红笔批改" loading="lazy">
       </div>
-      <div class="tags">
-        <span class="tag">Adversarial multi-core engine</span>
-        <span class="tag">BYOK · 7 providers</span>
-        <span class="tag">Zero telemetry</span>
-        <span class="tag">Free</span>
-      </div>
-      <div class="cta">
-        <a class="btn btn-dark" href="https://github.com/tywinlu1988/contra">GitHub →</a>
-      </div>
-    </div>
-
-    <h2 style="margin-top:30px;">Custom Development</h2>
-    <div class="svc">
-      <div class="card">
-        <h3>AI-Powered Tools</h3>
-        <p>From prompt pipelines to multi-agent orchestration, with measurable quality gates (eval frameworks, not vibes).</p>
-      </div>
-      <div class="card">
-        <h3>Browser Extensions</h3>
-        <p>Chrome/Edge MV3 extensions end-to-end: architecture, store review, and post-launch iteration.</p>
-      </div>
-      <div class="card">
-        <h3>Product Engineering</h3>
-        <p>Fast prototypes to production: TypeScript/React, design systems, docs that ship.</p>
-      </div>
-    </div>
-
-    <h2 style="margin-top:30px;">Contact</h2>
-    <p style="color:var(--ink-soft); font-size:15px;">Open to custom development and collaboration. Fastest way to reach me:</p>
-    <div class="cta">
-      <a class="btn btn-dark" href="https://github.com/tywinlu1988">GitHub @tywinlu1988</a>
     </div>
   </section>
 
-  <section data-lang="zh" id="zh">
-    <h2>产品</h2>
-    <div class="card product">
-      <div class="product-head">
-        <img class="logo" src="assets/logo-128.png" alt="Contra logo">
-        <div>
-          <div class="product-name serif">Contra</div>
-          <div class="product-sub serif">写作者的魔鬼代言人 · Chrome / Edge 扩展</div>
-        </div>
-      </div>
-      <p>不要发布任何未经最刻薄读者攻击过的文章。Contra 用三个对抗性 AI 编辑并行审稿——苛刻挑刺者、盲区猎犬、立论锻造师——在互联网骂你之前先把你骂一遍。架构级隐私：七家供应商 BYOK、零遥测、无账号。</p>
-      <div class="shots">
-        <img src="assets/promo-1-hero.png" alt="Contra 主视觉">
-        <img src="assets/promo-2-redpen.png" alt="Contra 红笔批改">
-        <img src="assets/promo-3-privacy.png" alt="Contra 隐私">
-      </div>
-      <div class="tags">
-        <span class="tag">对抗式多核引擎</span>
-        <span class="tag">BYOK · 七家供应商</span>
-        <span class="tag">零遥测</span>
-        <span class="tag">免费</span>
-      </div>
-      <div class="cta">
-        <a class="btn btn-dark" href="https://github.com/tywinlu1988/contra">GitHub →</a>
-      </div>
-    </div>
-
-    <h2 style="margin-top:30px;">定制开发</h2>
+  <section data-l="en" id="sv-en" class="on">
+    <h2>Custom development</h2>
     <div class="svc">
-      <div class="card">
-        <h3>AI 工具开发</h3>
-        <p>从 prompt 管线到多智能体编排，带可量化的质量门槛（评测体系，不凭感觉）。</p>
-      </div>
-      <div class="card">
-        <h3>浏览器扩展</h3>
-        <p>Chrome/Edge MV3 扩展全流程：架构设计、商店审核、上线后迭代。</p>
-      </div>
-      <div class="card">
-        <h3>产品工程</h3>
-        <p>从快速原型到生产交付：TypeScript/React、设计系统、能交付的文档。</p>
-      </div>
+      <div class="machine"><h3>AI-Powered Tools</h3><p>Prompt pipelines to multi-agent orchestration, with measurable quality gates.</p></div>
+      <div class="machine"><h3>Browser Extensions</h3><p>Chrome/Edge MV3 end-to-end: architecture, store review, iteration.</p></div>
+      <div class="machine"><h3>Product Engineering</h3><p>Prototype to production: TypeScript/React, design systems, docs that ship.</p></div>
     </div>
-
-    <h2 style="margin-top:30px;">联系</h2>
-    <p style="color:var(--ink-soft); font-size:15px;">承接定制开发与合作，最快的联系方式：</p>
-    <div class="cta">
-      <a class="btn btn-dark" href="https://github.com/tywinlu1988">GitHub @tywinlu1988</a>
+  </section>
+  <section data-l="zh" id="sv-zh">
+    <h2>定制开发</h2>
+    <div class="svc">
+      <div class="machine"><h3>AI 工具开发</h3><p>从 prompt 管线到多智能体编排，带可量化的质量门槛。</p></div>
+      <div class="machine"><h3>浏览器扩展</h3><p>Chrome/Edge MV3 全流程：架构、商店审核、上线迭代。</p></div>
+      <div class="machine"><h3>产品工程</h3><p>原型到生产：TypeScript/React、设计系统、能交付的文档。</p></div>
     </div>
   </section>
 
   <footer>
-    © 2026 Tywin Lu · Built with plain HTML, hosted on GitHub Pages · <a href="https://github.com/tywinlu1988/contra">Contra</a>
+    <span>© 2026 Tywin Lu</span>
+    <a href="https://github.com/tywinlu1988">GitHub @tywinlu1988</a>
+    <span class="egg" data-l="en" id="e-en">psst… try the Konami code</span>
+    <span class="egg" data-l="zh" id="e-zh">嘘……试试上上下下左右左右BA</span>
   </footer>
 </div>
+
 <script>
-  const btn = document.getElementById('langBtn');
-  const en = document.getElementById('en'), zh = document.getElementById('zh');
-  const te = document.getElementById('t-en'), tz = document.getElementById('t-zh');
-  let cur = 'en';
-  function apply() {
-    en.classList.toggle('on', cur === 'en'); zh.classList.toggle('on', cur === 'zh');
-    te.classList.toggle('on', cur === 'en'); tz.classList.toggle('on', cur === 'zh');
-    btn.textContent = cur === 'en' ? '中文' : 'EN';
+/* ================= 语言切换 ================= */
+let cur = 'en';
+const ids = ['t-en','t-zh','h-en','h-zh','s-en','s-zh','r-en','r-zh','p-en','p-zh','e-en','e-zh'];
+function applyLang() {
+  ids.forEach(id => { const el = document.getElementById(id); if (el) el.classList.toggle('on', id.endsWith(cur)); });
+  document.getElementById('sv-en').classList.toggle('on', cur === 'en');
+  document.getElementById('sv-zh').classList.toggle('on', cur === 'zh');
+  document.getElementById('feat-en').style.display = cur === 'en' ? 'grid' : 'none';
+  document.getElementById('feat-zh').style.display = cur === 'zh' ? 'grid' : 'none';
+  document.getElementById('langBtn').textContent = cur === 'en' ? '中文' : 'EN';
+}
+document.getElementById('langBtn').addEventListener('click', () => { cur = cur === 'en' ? 'zh' : 'en'; applyLang(); });
+
+/* ================= GitHub 实时产品架 ================= */
+fetch('https://api.github.com/users/tywinlu1988/repos?per_page=100&sort=updated')
+  .then(r => r.json())
+  .then(repos => {
+    if (!Array.isArray(repos)) return;
+    const shelf = document.getElementById('shelf');
+    repos
+      .filter(r => !r.fork && r.name !== 'tywinlu1988.github.io' && r.name !== 'contra')
+      .slice(0, 12)
+      .forEach(r => {
+        const el = document.createElement('div');
+        el.className = 'machine';
+        el.innerHTML = `<div class="m-name">🕹 ${r.name}</div>
+          <div class="m-desc">${r.description || (cur === 'zh' ? '暂无简介' : 'No description yet')}</div>
+          <div class="m-meta"><span>★ ${r.stargazers_count}</span><span>${r.language || ''}</span><a href="${r.html_url}">GitHub →</a></div>`;
+        shelf.appendChild(el);
+      });
+  })
+  .catch(() => {});
+
+/* ================= 纸飞机小游戏 ================= */
+(function () {
+  const cv = document.getElementById('game');
+  const ctx = cv.getContext('2d');
+  let W = 0, H = 300;
+  function resize() {
+    W = cv.clientWidth || 800;
+    cv.width = W; cv.height = H;
   }
-  btn.addEventListener('click', () => { cur = cur === 'en' ? 'zh' : 'en'; apply(); });
-  apply();
+  resize();
+  window.addEventListener('resize', resize);
+
+  const G = 0.16, LIFT = -0.42, OB_W = 46, GAP = 150;
+  let playing = false, dead = false, holding = false;
+  let y = H / 2, vy = 0, x = 120, speed = 3.2;
+  let obs = [], dist = 0, score = 0, frame = 0;
+  let best = parseInt(localStorage.getItem('gliderBest') || '0', 10);
+  let rain = false; // 彩蛋：红笔雨
+
+  const bestEl = document.getElementById('best'), bestEl2 = document.getElementById('best2');
+  function syncBest() { bestEl.textContent = best; bestEl2.textContent = best; }
+  syncBest();
+
+  function start() {
+    playing = true; dead = false;
+    y = H / 2; vy = 0; obs = []; dist = 0; score = 0; frame = 0; speed = 3.2;
+    document.getElementById('led').style.background = '#3fa873';
+  }
+  function crash() {
+    dead = true; playing = false;
+    if (score > best) { best = score; localStorage.setItem('gliderBest', String(best)); syncBest(); }
+    document.getElementById('led').style.background = '#e05555';
+  }
+
+  function spawnOb() {
+    const top = 40 + Math.random() * (H - GAP - 80);
+    obs.push({ x: W + 20, gapY: top, gapH: GAP });
+  }
+
+  function drawPlane() {
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.rotate(Math.max(-0.5, Math.min(0.5, vy * 0.12)));
+    ctx.fillStyle = '#ede8df';
+    ctx.strokeStyle = '#b8b0a3';
+    ctx.beginPath();
+    ctx.moveTo(16, 0); ctx.lineTo(-12, -8); ctx.lineTo(-6, 0); ctx.lineTo(-12, 8); ctx.closePath();
+    ctx.fill(); ctx.stroke();
+    ctx.restore();
+  }
+
+  function drawObs() {
+    for (const o of obs) {
+      ctx.fillStyle = rain ? '#e05555' : '#3a2f26';
+      ctx.strokeStyle = rain ? '#b91c1c' : '#57534e';
+      ctx.fillRect(o.x, 0, OB_W, o.gapY);
+      ctx.fillRect(o.x, o.gapY + o.gapH, OB_W, H - o.gapY - o.gapH);
+      ctx.strokeRect(o.x + .5, -1, OB_W - 1, o.gapY);
+      ctx.strokeRect(o.x + .5, o.gapY + o.gapH, OB_W - 1, H - o.gapY - o.gapH);
+    }
+  }
+
+  function hud() {
+    ctx.fillStyle = '#ede8df';
+    ctx.font = '600 16px -apple-system, sans-serif';
+    ctx.fillText((cur === 'zh' ? '距离 ' : 'distance ') + score + ' m', 14, 26);
+    if (!playing && !dead) {
+      ctx.fillStyle = '#7a7367'; ctx.font = 'italic 15px Georgia, serif'; ctx.textAlign = 'center';
+      ctx.fillText(cur === 'zh' ? '点击开始 · 按住爬升，松开俯冲' : 'click to start · hold to climb, release to dive', W / 2, H / 2 - 10);
+      ctx.textAlign = 'left';
+    }
+    if (dead) {
+      ctx.fillStyle = '#e05555'; ctx.font = '700 20px Georgia, serif'; ctx.textAlign = 'center';
+      ctx.fillText(cur === 'zh' ? '坠毁了！点击再来一局' : 'Crashed! Click to fly again', W / 2, H / 2 - 10);
+      ctx.fillStyle = '#b8b0a3'; ctx.font = '14px sans-serif';
+      ctx.fillText((cur === 'zh' ? '本局 ' : 'score ') + score + ' m · ' + (cur === 'zh' ? '最高 ' : 'best ') + best + ' m', W / 2, H / 2 + 16);
+      ctx.textAlign = 'left';
+    }
+  }
+
+  function loop() {
+    ctx.clearRect(0, 0, W, H);
+    // 背景地平线
+    ctx.strokeStyle = '#262019'; ctx.beginPath(); ctx.moveTo(0, H - 12); ctx.lineTo(W, H - 12); ctx.stroke();
+
+    if (playing) {
+      frame++;
+      vy += holding ? LIFT : G;
+      vy = Math.max(-5, Math.min(6, vy));
+      y += vy;
+      dist += speed;
+      score = Math.floor(dist / 10);
+      if (frame % 90 === 0) spawnOb();
+      if (frame % 1200 === 0) speed += 0.3; // 渐进加速
+      for (const o of obs) o.x -= speed;
+      obs = obs.filter(o => o.x > -OB_W - 10);
+      if (y < 0 || y > H - 12) crash();
+      for (const o of obs) {
+        if (x + 12 > o.x && x - 12 < o.x + OB_W && (y - 8 < o.gapY || y + 8 > o.gapY + o.gapH)) crash();
+      }
+    }
+    drawObs(); drawPlane(); hud();
+    requestAnimationFrame(loop);
+  }
+  loop();
+
+  function down(e) { e.preventDefault(); if (!playing) { if (dead || true) start(); } holding = true; }
+  function up() { holding = false; }
+  cv.addEventListener('pointerdown', down);
+  window.addEventListener('pointerup', up);
+  window.addEventListener('keydown', e => { if (e.code === 'Space') { e.preventDefault(); if (!playing) start(); holding = true; } });
+  window.addEventListener('keyup', e => { if (e.code === 'Space') holding = false; });
+
+  /* Konami 彩蛋：红笔雨（障碍变红笔） */
+  const code = ['ArrowUp','ArrowUp','ArrowDown','ArrowDown','ArrowLeft','ArrowRight','ArrowLeft','ArrowRight','b','a'];
+  let pos = 0;
+  window.addEventListener('keydown', e => {
+    pos = (e.key === code[pos]) ? pos + 1 : (e.key === code[0] ? 1 : 0);
+    if (pos === code.length) { pos = 0; rain = !rain; }
+  });
+})();
+
+/* ================= 背景尘埃粒子 ================= */
+(function () {
+  const c = document.getElementById('dust'), x = c.getContext('2d');
+  let w, h;
+  function rs() { w = c.width = innerWidth; h = c.height = innerHeight; }
+  rs(); addEventListener('resize', rs);
+  const ps = Array.from({ length: 50 }, () => ({
+    x: Math.random(), y: Math.random(), r: Math.random() * 1.6 + 0.4,
+    vx: (Math.random() - .5) * .00012, vy: (Math.random() - .5) * .00012,
+    a: Math.random() * .35 + .08,
+  }));
+  (function tick() {
+    x.clearRect(0, 0, w, h);
+    for (const p of ps) {
+      p.x = (p.x + p.vx + 1) % 1; p.y = (p.y + p.vy + 1) % 1;
+      x.globalAlpha = p.a; x.fillStyle = '#d9a03f';
+      x.beginPath(); x.arc(p.x * w, p.y * h, p.r, 0, 7); x.fill();
+    }
+    requestAnimationFrame(tick);
+  })();
+})();
+applyLang();
 </script>
 </body>
 </html>
