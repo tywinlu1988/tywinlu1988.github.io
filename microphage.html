@@ -1,0 +1,1121 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>微噬 MICROPHAGE</title>
+<style>
+  html, body { margin: 0; padding: 0; height: 100%; background: #04070f; overflow: hidden; }
+  body { display: flex; align-items: center; justify-content: center; }
+  #stage { display: block; width: min(96vw, calc(96vh * 1.6)); max-width: 960px; aspect-ratio: 8 / 5;
+           background: #050a16; border-radius: 10px; touch-action: none; cursor: crosshair; }
+</style>
+</head>
+<body>
+<canvas id="stage" width="640" height="400"></canvas>
+<script id="phage-core">
+(function () {
+  'use strict';
+  // ==================== 常量 ====================
+  const W = 640;
+  const H = 400;
+  const PLAYER_R = 14;
+  const PLAYER_MAX = 220;
+  const PLAYER_ACC = 1500;
+  const PLAYER_DRAG = 3.2;
+  const CURRENT_STR = 26;
+  const BACT_R = 4;
+  const BACT_BASE = 16;
+  const BACT_GROW = 2;
+  const VIRUS_R = 12;
+  const VIRUS_FLEE_SPD = 135;
+  const INVULN_T = 1.5;
+  const BURST_T = 8;
+  const VIRUS_RESPAWN = 3;
+  const CHAIN_T = 2;
+  const VIRUS_KINDS = ['seeker', 'interceptor', 'orbiter'];
+  const BOSS_R = 30;
+  const BOSS_HP = 3;
+  const BOSS_INVULN = 0.8;
+  const CLOAK_CYCLE = 6;
+  const CLOAK_TIME = 2;
+  const MUTATIONS = [
+    { id: 'speed', name: '伪足强化', desc: '速度 +10%' },
+    { id: 'membrane', name: '膜层增厚', desc: '生命上限 +1' },
+    { id: 'magnet', name: '磁吸胞膜', desc: '吃菌范围扩大' },
+    { id: 'burst', name: '抗体增效', desc: '爆发 +2.5 秒' },
+    { id: 'stream', name: '逆流形态', desc: '洋流影响减弱' },
+    { id: 'chain', name: '记忆蛋白', desc: '连吃窗口 +2 秒' },
+    { id: 'vamp', name: '吞噬回膜', desc: '吞噬病毒回复 1 膜' },
+    { id: 'quake', name: '余震胞膜', desc: '感染时震退周围病毒' },
+  ];
+
+  // 三套有机组织障碍（blob 簇），随波次轮换
+  const LAYOUTS = [
+    [{ x: 168, y: 118, r: 46 }, { x: 204, y: 152, r: 30 }, { x: 462, y: 262, r: 52 }, { x: 498, y: 224, r: 26 }, { x: 322, y: 306, r: 40 }],
+    [{ x: 148, y: 288, r: 50 }, { x: 330, y: 108, r: 44 }, { x: 356, y: 150, r: 26 }, { x: 502, y: 118, r: 36 }, { x: 484, y: 344, r: 40 }],
+    [{ x: 240, y: 90, r: 40 }, { x: 268, y: 330, r: 48 }, { x: 432, y: 170, r: 40 }, { x: 118, y: 182, r: 34 }, { x: 562, y: 270, r: 30 }],
+  ];
+
+  // ==================== RNG ====================
+  function makeRng(seed) {
+    let s = (seed >>> 0) || 0x9e3779b9;
+    return function () {
+      s ^= s << 13; s >>>= 0;
+      s ^= s >>> 17;
+      s ^= s << 5; s >>>= 0;
+      return (s % 1000000) / 1000000;
+    };
+  }
+  function hashSeed(str) {
+    let h = 2166136261;
+    for (let i = 0; i < str.length; i++) {
+      h ^= str.charCodeAt(i);
+      h = Math.imul(h, 16777619);
+    }
+    return h >>> 0;
+  }
+
+  function createPhage(opts) {
+    opts = opts || {};
+    const ctx = opts.ctx || null;
+    const god = !!opts.god; // 测试模式：感染不扣膜（仅用于 headless 系统级断言）
+    const rng = opts.rng || makeRng(hashSeed(opts.seed || 'microphage'));
+    let canvas = null;
+    let view = null;
+    let c2d = null;
+    let rafId = 0;
+    let ivDispose = null;
+    let lastT = 0;
+    let keys = { up: false, down: false, left: false, right: false };
+    let muted = false;
+    let shakeEnabled = true;
+    let state = 'title';
+    let wave = 0;
+    let score = 0;
+    let hp = 3;
+    let chain = 0;
+    let chainT = 0;
+    let burstT = 0;
+    let invulnT = 0;
+    let time = 0;
+    let player = null;
+    let bacteria = [];
+    let viruses = [];
+    let items = [];
+    let particles = [];
+    let flashT = 0;
+    let flashColor = '255,70,90';
+    let shakeT = 0;
+    let playerEatPulse = 0;
+    let upgrades = { speed: 0, membrane: 0, magnet: 0, burst: 0, stream: 0, chain: 0, vamp: 0, quake: 0 };
+    let evoChoices = [];
+    let high = 0;
+    let actx = null;
+    let lastEatT = 0;
+    let step = 0;
+    let bokeh = [];
+    let touchId = null;
+    let touchSX = 0;
+    let touchSY = 0;
+    let touchDX = 0;
+    let touchDY = 0;
+
+    function rand(a, b) { return a + rng() * (b - a); }
+
+    function layout() { return LAYOUTS[Math.max(0, wave - 1) % LAYOUTS.length]; }
+
+    function inObstacle(x, y) {
+      const obs = layout();
+      for (const o of obs) {
+        const dx = x - o.x;
+        const dy = y - o.y;
+        const r = o.r + 8;
+        if (dx * dx + dy * dy < r * r) return true;
+      }
+      return false;
+    }
+
+    function freeSpot(margin, avoidPlayer) {
+      for (let i = 0; i < 300; i++) {
+        const x = rand(margin, W - margin);
+        const y = rand(margin, H - margin);
+        if (inObstacle(x, y)) continue;
+        if (avoidPlayer && player && dist(x, y, player.x, player.y) < 130) continue;
+        return { x: x, y: y };
+      }
+      return { x: W / 2, y: H / 2 };
+    }
+
+    function dist(ax, ay, bx, by) {
+      const dx = ax - bx;
+      const dy = ay - by;
+      return Math.sqrt(dx * dx + dy * dy);
+    }
+
+    // 障碍推挤 + 边界约束（流体滑动，非网格停靠）
+    function pushOut(p) {
+      const obs = layout();
+      for (const o of obs) {
+        const dx = p.x - o.x;
+        const dy = p.y - o.y;
+        const r = o.r + 8;
+        const d2 = dx * dx + dy * dy;
+        if (d2 >= r * r || d2 < 1e-9) continue;
+        const d = Math.sqrt(d2);
+        const nx = dx / d;
+        const ny = dy / d;
+        p.x = o.x + nx * r;
+        p.y = o.y + ny * r;
+        const vn = p.vx * nx + p.vy * ny;
+        if (vn < 0) {
+          p.vx -= vn * nx * 1.6;
+          p.vy -= vn * ny * 1.6;
+        }
+      }
+      p.x = Math.max(20, Math.min(W - 20, p.x));
+      p.y = Math.max(20, Math.min(H - 20, p.y));
+    }
+
+    // 洋流漂移场（随时间缓慢变化的连续场）
+    function currentAt(x, y, t) {
+      return {
+        x: Math.sin(t * 0.7 + y * 0.018) * CURRENT_STR + Math.cos(t * 0.5 + x * 0.011) * CURRENT_STR * 0.5,
+        y: Math.cos(t * 0.6 + x * 0.016) * CURRENT_STR + Math.sin(t * 0.45 + y * 0.013) * CURRENT_STR * 0.5,
+      };
+    }
+
+    function maxHp() {
+      return Math.min(5, 3 + upgrades.membrane);
+    }
+
+    function makeVirus(kind) {
+      const p = freeSpot(70, true);
+      const base = kind === 'seeker' ? 172 : kind === 'interceptor' ? 162 : kind === 'orbiter' ? 152 : 150;
+      return {
+        kind: kind,
+        x: p.x,
+        y: p.y,
+        vx: 0,
+        vy: 0,
+        r: VIRUS_R,
+        phase: rand(0, 6.28),
+        maxSpd: base + (wave - 1) * 7,
+        respawnT: 0,
+        recoilT: 0,
+        lungeT: 0,
+        lungeCd: rand(1, 2.5),
+        wobble: rand(0, 6.28),
+        cloaked: false,
+        cloakT: rand(2, CLOAK_CYCLE),
+        bossHp: 0,
+        bossInvulnT: 0,
+      };
+    }
+
+    function startWave(n) {
+      wave = n;
+      const bossWave = n % 5 === 0;
+      const count = bossWave ? 10 : BACT_BASE + (n - 1) * BACT_GROW;
+      bacteria = [];
+      for (let i = 0; i < count; i++) bacteria.push(freeSpot(26, false));
+      items = [];
+      const nItems = bossWave ? 2 : (n >= 3 ? 2 : 1);
+      for (let i = 0; i < nItems; i++) items.push(freeSpot(34, false));
+      if (bossWave) {
+        const bp = freeSpot(110, true);
+        viruses = [{
+          kind: 'boss', x: bp.x, y: bp.y, vx: 0, vy: 0, r: BOSS_R,
+          phase: rand(0, 6.28), maxSpd: 118 + (n - 5), respawnT: 0, recoilT: 0,
+          lungeT: 0, lungeCd: 3, wobble: rand(0, 6.28),
+          cloaked: false, cloakT: 0, bossHp: BOSS_HP, bossInvulnT: 0,
+        }];
+        for (const kind of [VIRUS_KINDS[(n - 1) % 3], VIRUS_KINDS[n % 3]]) {
+          const p = freeSpot(90, true);
+          viruses.push({
+            kind: kind, x: p.x, y: p.y, vx: 0, vy: 0, r: VIRUS_R,
+            phase: rand(0, 6.28), maxSpd: 168 + (n - 5) * 4, respawnT: 0, recoilT: 0,
+            lungeT: 0, lungeCd: rand(1, 2.5), wobble: rand(0, 6.28),
+            cloaked: false, cloakT: 0, bossHp: 0, bossInvulnT: 0,
+          });
+        }
+      } else {
+        const kinds = n >= 4 ? ['seeker', 'interceptor', 'orbiter', 'cloaker'] : VIRUS_KINDS.slice(0, Math.min(3, n));
+        viruses = kinds.map(makeVirus);
+      }
+      particles = [];
+    }
+
+    // ---- 波间进化 ----
+    function pickEvo() {
+      const pool = MUTATIONS.slice();
+      for (let i = pool.length - 1; i > 0; i--) {
+        const j = (rng() * (i + 1)) | 0;
+        const t = pool[i];
+        pool[i] = pool[j];
+        pool[j] = t;
+      }
+      return pool.slice(0, 3);
+    }
+
+    function waveClear() {
+      score += 300 + wave * 50;
+      particles = particles.concat(burstAt(player.x, player.y, '170,255,170', 22, 160));
+      waveSound();
+      saveHigh();
+      state = 'evolve';
+      evoChoices = pickEvo();
+      viruses = [];
+    }
+
+    function chooseEvo(i) {
+      if (state !== 'evolve') return false;
+      const c = evoChoices[i];
+      if (!c) return false;
+      upgrades[c.id] = (upgrades[c.id] || 0) + 1;
+      if (c.id === 'membrane') hp = Math.min(maxHp(), hp + 1);
+      startWave(wave + 1);
+      state = 'play';
+      return true;
+    }
+
+    function startGame() {
+      score = 0;
+      hp = maxHp();
+      upgrades = { speed: 0, membrane: 0, magnet: 0, burst: 0, stream: 0, chain: 0, vamp: 0, quake: 0 };
+      evoChoices = [];
+      burstT = 0;
+      invulnT = 0;
+      chain = 0;
+      chainT = 0;
+      time = 0;
+      player = { x: W / 2, y: H / 2, vx: 0, vy: 0 };
+      bokeh = [];
+      for (let i = 0; i < 14; i++) {
+        bokeh.push({ x: rand(0, W), y: rand(0, H), r: rand(6, 30), sp: rand(0.2, 0.6), ph: rand(0, 6.28) });
+      }
+      startWave(1);
+      state = 'play';
+    }
+
+    function burstAt(x, y, rgb, count, speed) {
+      const out = [];
+      for (let i = 0; i < count; i++) {
+        const a = rand(0, Math.PI * 2);
+        const v = speed * (0.4 + rng() * 0.8);
+        out.push({
+          x: x,
+          y: y,
+          vx: Math.cos(a) * v,
+          vy: Math.sin(a) * v,
+          life: rand(0.4, 0.9),
+          maxLife: 0.9,
+          rgb: rgb,
+          size: rand(1.5, 3.5),
+        });
+      }
+      return out;
+    }
+
+    // ==================== 更新 ====================
+    function update(dt) {
+      time += dt;
+      step++;
+      if (flashT > 0) flashT = Math.max(0, flashT - dt);
+      if (shakeT > 0) shakeT = Math.max(0, shakeT - dt);
+      if (invulnT > 0) invulnT = Math.max(0, invulnT - dt);
+      if (playerEatPulse > 0) playerEatPulse = Math.max(0, playerEatPulse - dt);
+      if (chainT > 0) {
+        chainT -= dt;
+        if (chainT <= 0) chain = 0;
+      }
+      if (burstT > 0) burstT = Math.max(0, burstT - dt);
+      for (const p of particles) {
+        p.life -= dt;
+        p.x += p.vx * dt;
+        p.y += p.vy * dt;
+        p.vx *= 0.96;
+        p.vy *= 0.96;
+      }
+      particles = particles.filter(function (p) { return p.life > 0; });
+
+      // 输入（键盘 + 触屏虚拟摇杆）
+      let ix = 0;
+      let iy = 0;
+      if (keys.left) ix -= 1;
+      if (keys.right) ix += 1;
+      if (keys.up) iy -= 1;
+      if (keys.down) iy += 1;
+      if (touchId !== null) {
+        const tl = Math.hypot(touchDX, touchDY);
+        if (tl > 8) {
+          ix = touchDX / tl;
+          iy = touchDY / tl;
+        }
+      }
+      const il = Math.hypot(ix, iy) || 1;
+
+      // 惯性 + 洋流 + 阻力（突变：速度/逆流）
+      const cm = Math.max(0.2, 1 - 0.65 * upgrades.stream);
+      const c = currentAt(player.x, player.y, time);
+      player.vx += (ix / il * PLAYER_ACC + c.x * 2.4 * cm - player.vx * PLAYER_DRAG) * dt;
+      player.vy += (iy / il * PLAYER_ACC + c.y * 2.4 * cm - player.vy * PLAYER_DRAG) * dt;
+      const pmax = PLAYER_MAX * (1 + 0.1 * upgrades.speed);
+      const sp = Math.hypot(player.vx, player.vy);
+      if (sp > pmax) {
+        player.vx *= pmax / sp;
+        player.vy *= pmax / sp;
+      }
+      player.x += player.vx * dt;
+      player.y += player.vy * dt;
+      pushOut(player);
+
+      // 吞噬细菌（突变：磁吸范围/记忆蛋白）
+      for (let i = bacteria.length - 1; i >= 0; i--) {
+        const b = bacteria[i];
+        if (dist(player.x, player.y, b.x, b.y) < PLAYER_R + BACT_R + 3 + upgrades.magnet * 9) {
+          bacteria.splice(i, 1);
+          chain++;
+          chainT = CHAIN_T + upgrades.chain * 2;
+          score += 10 * (1 + Math.min(chain - 1, 4));
+          particles = particles.concat(burstAt(b.x, b.y, '255,205,120', 6, 70));
+          playerEatPulse = 0.16;
+          eatSound(chain);
+          if (bacteria.length === 0 && !viruses.some(function (v) { return v.kind === 'boss'; })) {
+            waveClear();
+            break;
+          }
+        }
+      }
+
+      // 抗体道具（突变：抗体增效）
+      for (let i = items.length - 1; i >= 0; i--) {
+        const it = items[i];
+        if (dist(player.x, player.y, it.x, it.y) < PLAYER_R + 13) {
+          items.splice(i, 1);
+          burstT = BURST_T + upgrades.burst * 2.5;
+          score += 100;
+          particles = particles.concat(burstAt(it.x, it.y, '170,240,255', 16, 130));
+          burstSound();
+        }
+      }
+
+      // 病毒
+      for (const v of viruses) {
+        if (v.respawnT > 0) {
+          v.respawnT -= dt;
+          if (v.respawnT <= 0) {
+            const p = freeSpot(70, true);
+            v.x = p.x;
+            v.y = p.y;
+            v.vx = 0;
+            v.vy = 0;
+            v.lungeCd = 1.2;
+          }
+          continue;
+        }
+        if (v.recoilT > 0) v.recoilT -= dt;
+        if (v.bossInvulnT > 0) v.bossInvulnT -= dt;
+        const flee = burstT > 0 && v.kind !== 'boss';
+        let tx;
+        let ty;
+        let spdCap = flee ? VIRUS_FLEE_SPD : v.maxSpd;
+        if (flee) {
+          tx = v.x + (v.x - player.x) * 100;
+          ty = v.y + (v.y - player.y) * 100;
+        } else if (v.kind === 'interceptor') {
+          tx = player.x + player.vx * 0.9;
+          ty = player.y + player.vy * 0.9;
+        } else if (v.kind === 'orbiter') {
+          v.lungeCd -= dt;
+          const d = dist(v.x, v.y, player.x, player.y);
+          if (v.lungeT > 0) {
+            v.lungeT -= dt;
+            tx = player.x;
+            ty = player.y;
+          } else {
+            const ang = Math.atan2(v.y - player.y, v.x - player.x) + 1.6;
+            tx = player.x + Math.cos(ang) * 100;
+            ty = player.y + Math.sin(ang) * 100;
+            if (v.lungeCd <= 0 && d < 230) {
+              v.lungeT = 0.9;
+              v.lungeCd = 3.2;
+            }
+          }
+        } else if (v.kind === 'boss') {
+          // Boss：慢速直追 + 周期性冲刺（爆发期不逃窜，持续施压）
+          v.lungeCd -= dt;
+          if (v.lungeT > 0) {
+            v.lungeT -= dt;
+            tx = player.x;
+            ty = player.y;
+            spdCap = 265;
+          } else {
+            tx = player.x;
+            ty = player.y;
+            spdCap = 118 + Math.min(30, (wave - 5) * 4);
+            if (v.lungeCd <= 0) {
+              v.lungeT = 1.1;
+              v.lungeCd = 5.2;
+            }
+          }
+        } else if (v.kind === 'cloaker') {
+          // 隐孢：6s 周期隐身 2s（漂移减速），现身追击
+          v.cloakT -= dt;
+          if (v.cloakT <= 0) {
+            v.cloaked = !v.cloaked;
+            v.cloakT = v.cloaked ? CLOAK_TIME : CLOAK_CYCLE - CLOAK_TIME;
+          }
+          if (v.cloaked) {
+            tx = v.x + Math.sin(time * 0.9 + v.wobble) * 90;
+            ty = v.y + Math.cos(time * 0.7 + v.wobble) * 90;
+            spdCap = 80;
+          } else {
+            tx = player.x;
+            ty = player.y;
+          }
+        } else {
+          tx = player.x;
+          ty = player.y;
+        }
+        let dx = tx - v.x;
+        let dy = ty - v.y;
+        const dd = Math.hypot(dx, dy) || 1;
+        dx /= dd;
+        dy /= dd;
+        const wob = Math.sin(time * 3 + v.wobble) * 0.35;
+        const ox = -dy * wob;
+        const oy = dx * wob;
+        const desiredX = (dx + ox) * spdCap;
+        const desiredY = (dy + oy) * spdCap;
+        v.vx += (desiredX - v.vx) * 2.6 * dt;
+        v.vy += (desiredY - v.vy) * 2.6 * dt;
+        if (v.recoilT > 0) {
+          v.vx *= 0.9;
+          v.vy *= 0.9;
+        }
+        v.x += v.vx * dt;
+        v.y += v.vy * dt;
+        pushOut(v);
+
+        // 接触
+        if (dist(v.x, v.y, player.x, player.y) < PLAYER_R + v.r) {
+          if (burstT > 0) {
+            if (v.kind === 'boss') {
+              if (v.bossInvulnT <= 0) {
+                v.bossHp--;
+                v.bossInvulnT = BOSS_INVULN;
+                const ba = Math.atan2(v.y - player.y, v.x - player.x);
+                v.x += Math.cos(ba) * 90;
+                v.y += Math.sin(ba) * 90;
+                score += 500;
+                particles = particles.concat(burstAt(v.x, v.y, '255,120,190', 24, 200));
+                engulfSound();
+                shakeT = 0.3;
+                if (items.length < 3) items.push(freeSpot(34, false)); // Boss 受击掉落抗体
+                if (v.bossHp <= 0) {
+                  score += 1000;
+                  particles = particles.concat(burstAt(v.x, v.y, '255,160,210', 42, 260));
+                  waveClear();
+                }
+              }
+            } else {
+              v.respawnT = VIRUS_RESPAWN;
+              score += 250;
+              if (upgrades.vamp > 0) hp = Math.min(maxHp(), hp + 1);
+              particles = particles.concat(burstAt(v.x, v.y, '220,150,255', 18, 140));
+              engulfSound();
+              shakeT = 0.2;
+            }
+          } else if (invulnT <= 0) {
+            if (!god) {
+              hp--;
+            }
+            invulnT = INVULN_T;
+            v.recoilT = 1.0;
+            const px = v.x - player.x;
+            const py = v.y - player.y;
+            const pl = Math.hypot(px, py) || 1;
+            v.x += (px / pl) * 44;
+            v.y += (py / pl) * 44;
+            flashT = 0.4;
+            flashColor = '255,70,90';
+            shakeT = 0.35;
+            hurtSound();
+            // 突变：余震胞膜——感染时震退周围病毒
+            if (upgrades.quake > 0) {
+              for (const o of viruses) {
+                if (o === v || o.respawnT > 0) continue;
+                const qd = dist(o.x, o.y, player.x, player.y);
+                if (qd < 210 && qd > 1) {
+                  const kx = ((o.x - player.x) / qd) * 90;
+                  const ky = ((o.y - player.y) / qd) * 90;
+                  o.x += kx;
+                  o.y += ky;
+                }
+              }
+            }
+            if (hp <= 0 && !god) {
+              state = 'over';
+              saveHigh();
+            }
+          }
+        }
+      }
+    }
+
+    // ==================== 渲染 ====================
+    function render() {
+      const c = c2d;
+      c.globalAlpha = 1;
+      c.save();
+      if (shakeT > 0 && shakeEnabled) {
+        c.translate((rng() * 2 - 1) * 4 * shakeT, (rng() * 2 - 1) * 4 * shakeT);
+      }
+      // 背景
+      c.fillStyle = '#050a16';
+      c.fillRect(-8, -8, W + 16, H + 16);
+      // 失焦光斑
+      for (let i = 0; i < bokeh.length; i++) {
+        const b = bokeh[i];
+        const bx = b.x + Math.sin(time * 0.3 * b.sp + b.ph) * 18;
+        const by = b.y + Math.cos(time * 0.25 * b.sp + b.ph) * 14;
+        c.fillStyle = 'rgba(70,110,190,' + (0.05 + (i % 4) * 0.015).toFixed(3) + ')';
+        c.beginPath();
+        c.arc(bx, by, b.r, 0, 6.2832);
+        c.fill();
+      }
+      // 组织障碍（有机 blob 簇）
+      for (const o of layout()) {
+        const g = c.createRadialGradient(o.x, o.y, 4, o.x, o.y, o.r + 6);
+        g.addColorStop(0, 'rgba(46,74,124,0.85)');
+        g.addColorStop(0.8, 'rgba(24,42,80,0.8)');
+        g.addColorStop(1, 'rgba(24,42,80,0)');
+        c.fillStyle = g;
+        c.beginPath();
+        c.arc(o.x, o.y, o.r + 6, 0, 6.2832);
+        c.fill();
+        c.fillStyle = 'rgba(90,140,210,0.28)';
+        c.beginPath();
+        c.arc(o.x, o.y, o.r - 10, 0, 6.2832);
+        c.fill();
+      }
+      // 细菌（发光颗粒，脉动）
+      for (let i = 0; i < bacteria.length; i++) {
+        const b = bacteria[i];
+        const pr = 3 + Math.sin(time * 4 + i * 1.7) * 1;
+        c.fillStyle = 'rgba(255,205,120,0.22)';
+        c.beginPath();
+        c.arc(b.x, b.y, pr + 4, 0, 6.2832);
+        c.fill();
+        c.fillStyle = '#ffcf80';
+        c.beginPath();
+        c.arc(b.x, b.y, pr, 0, 6.2832);
+        c.fill();
+      }
+      // 抗体道具（Y 字形）
+      for (const it of items) {
+        const glow = 0.5 + 0.3 * Math.sin(time * 5);
+        c.strokeStyle = 'rgba(180,245,255,' + glow.toFixed(2) + ')';
+        c.lineWidth = 3;
+        c.lineCap = 'round';
+        c.beginPath();
+        c.moveTo(it.x - 4, it.y - 4);
+        c.lineTo(it.x, it.y + 1);
+        c.lineTo(it.x + 4, it.y - 4);
+        c.moveTo(it.x, it.y + 1);
+        c.lineTo(it.x, it.y + 9);
+        c.stroke();
+        c.fillStyle = 'rgba(180,245,255,0.25)';
+        c.beginPath();
+        c.arc(it.x, it.y + 1, 13 + Math.sin(time * 5) * 2, 0, 6.2832);
+        c.fill();
+      }
+      // 病毒
+      for (const v of viruses) drawVirus(c, v);
+      // 玩家细胞
+      drawPlayer(c);
+      // 粒子
+      for (const p of particles) {
+        c.globalAlpha = Math.max(0, p.life / p.maxLife);
+        c.fillStyle = 'rgb(' + p.rgb + ')';
+        c.fillRect(p.x - p.size / 2, p.y - p.size / 2, p.size, p.size);
+      }
+      c.globalAlpha = 1;
+      c.restore();
+
+      drawHUD(c);
+      // 感染红光
+      if (flashT > 0) {
+        c.globalAlpha = Math.min(0.55, flashT * 1.4);
+        c.fillStyle = 'rgb(' + flashColor + ')';
+        c.fillRect(0, 0, W, H);
+        c.globalAlpha = 1;
+      }
+      if (state === 'evolve') drawEvolve(c);
+      // 抗体爆发蓝晕
+      if (burstT > 0 && state === 'play') {
+        c.globalAlpha = 0.06 + 0.04 * Math.sin(time * 6);
+        c.fillStyle = '#aef0ff';
+        c.fillRect(0, 0, W, H);
+        c.globalAlpha = 1;
+      }
+      if (state === 'title') drawTitle(c);
+      if (state === 'over') drawOver(c);
+      if (state === 'paused') {
+        c.fillStyle = 'rgba(4,8,20,0.55)';
+        c.fillRect(0, 0, W, H);
+        c.fillStyle = '#cfe8ff';
+        c.font = '20px ui-monospace, Menlo, monospace';
+        c.textAlign = 'center';
+        c.fillText('PAUSED · P 继续', W / 2, H / 2);
+        c.textAlign = 'left';
+      }
+    }
+
+    function drawVirus(c, v) {
+      if (v.respawnT > 0) return;
+      const trem = burstT > 0 && v.kind !== 'boss' ? Math.sin(time * 42 + v.phase) * 1.6 : 0;
+      const x = v.x + trem;
+      const y = v.y + trem * 0.7;
+      const baseCol = v.kind === 'boss' ? '#e05ab8' : burstT > 0 ? '#9fd8ff' : '#c98aff';
+      const coreCol = burstT > 0 ? '#ffffff' : v.kind === 'boss' ? '#7a1e62' : '#5a2a7a';
+      const hitFlash = v.bossInvulnT > 0;
+      c.save();
+      c.globalAlpha = v.cloaked ? 0.14 : 1;
+      c.translate(x, y);
+      c.rotate(time * 0.9 + v.phase);
+      c.beginPath();
+      const spikes = v.kind === 'boss' ? 12 : 9;
+      for (let i = 0; i < spikes * 2; i++) {
+        const ang = (i * Math.PI) / spikes;
+        const rr = i % 2 === 0 ? v.r + 4 : v.r - 3.5;
+        const px = Math.cos(ang) * rr;
+        const py = Math.sin(ang) * rr;
+        if (i === 0) c.moveTo(px, py);
+        else c.lineTo(px, py);
+      }
+      c.closePath();
+      c.fillStyle = hitFlash ? '#ffffff' : baseCol;
+      c.fill();
+      c.restore();
+      c.globalAlpha = 1;
+      c.fillStyle = coreCol;
+      c.beginPath();
+      c.arc(x, y, v.kind === 'boss' ? 9 : 3.6, 0, 6.2832);
+      c.fill();
+      // Boss 血条
+      if (v.kind === 'boss') {
+        for (let i = 0; i < BOSS_HP; i++) {
+          c.fillStyle = i < v.bossHp ? 'rgba(255,120,190,0.95)' : 'rgba(90,120,160,0.4)';
+          c.fillRect(x - 22 + i * 16, y - v.r - 12, 12, 4);
+        }
+      }
+    }
+
+    function drawPlayer(c) {
+      if (state !== 'play' && state !== 'paused') return;
+      if (invulnT > 0 && Math.floor(time * 14) % 2 === 0) return;
+      const p = player;
+      const ang0 = Math.atan2(p.vy, p.vx);
+      const R = PLAYER_R + (playerEatPulse > 0 ? 3 : 0);
+      // 伪足
+      for (let k = 0; k < 3; k++) {
+        const a = ang0 + (k - 1) * 0.7;
+        const ex = p.x + Math.cos(a) * (R + 8);
+        const ey = p.y + Math.sin(a) * (R + 8);
+        c.fillStyle = 'rgba(126,240,224,0.45)';
+        c.beginPath();
+        c.ellipse(ex, ey, 5.2, 2.6, a, 0, 6.2832);
+        c.fill();
+      }
+      // 摆动细胞膜
+      c.beginPath();
+      const segs = 30;
+      for (let i = 0; i <= segs; i++) {
+        const a = (i / segs) * Math.PI * 2;
+        const wob = 1 + 0.09 * Math.sin(3 * a + time * 5) + 0.05 * Math.sin(5 * a - time * 3.5);
+        const rr = R * wob;
+        const px = p.x + Math.cos(a) * rr;
+        const py = p.y + Math.sin(a) * rr;
+        if (i === 0) c.moveTo(px, py);
+        else c.lineTo(px, py);
+      }
+      c.closePath();
+      const g = c.createRadialGradient(p.x, p.y, 2, p.x, p.y, R + 7);
+      g.addColorStop(0, '#eafffb');
+      g.addColorStop(0.55, '#7ef0e0');
+      g.addColorStop(1, 'rgba(70,180,200,0.12)');
+      c.fillStyle = g;
+      c.fill();
+      // 细胞核
+      c.fillStyle = 'rgba(255,255,255,0.92)';
+      c.beginPath();
+      c.arc(p.x + Math.cos(time * 2) * 1.5, p.y + Math.sin(time * 2.4) * 1.5, 4.6, 0, 6.2832);
+      c.fill();
+      // 抗体爆发光环
+      if (burstT > 0) {
+        c.fillStyle = 'rgba(150,242,255,' + (0.16 + 0.1 * Math.sin(time * 6)).toFixed(2) + ')';
+        c.beginPath();
+        c.arc(p.x, p.y, R + 10 + Math.sin(time * 6) * 2.5, 0, 6.2832);
+        c.fill();
+      }
+    }
+
+    function drawHUD(c) {
+      if (state === 'title') return;
+      c.fillStyle = 'rgba(210,235,255,0.88)';
+      c.font = '13px ui-monospace, Menlo, monospace';
+      c.textAlign = 'left';
+      c.fillText('SCORE ' + score, 12, 22);
+      c.fillText('WAVE ' + wave, 12, 40);
+      // 细胞膜 HP（上限随膜层增厚突变提升）
+      for (let i = 0; i < maxHp(); i++) {
+        c.fillStyle = i < hp ? 'rgba(126,240,224,0.9)' : 'rgba(90,120,160,0.35)';
+        c.beginPath();
+        c.arc(16 + i * 14, 56, 4.5, 0, 6.2832);
+        c.fill();
+      }
+      // 抗体爆发计时条
+      if (burstT > 0) {
+        const bw = 120;
+        c.fillStyle = 'rgba(90,130,180,0.4)';
+        c.fillRect(W / 2 - bw / 2, H - 16, bw, 5);
+        c.fillStyle = '#9deeff';
+        c.fillRect(W / 2 - bw / 2, H - 16, bw * (burstT / BURST_T), 5);
+      }
+    }
+
+    function drawEvolve(c) {
+      c.fillStyle = 'rgba(4,8,20,0.72)';
+      c.fillRect(0, 0, W, H);
+      c.textAlign = 'center';
+      c.fillStyle = '#9deeff';
+      c.font = '20px ui-monospace, Menlo, monospace';
+      c.fillText('进化 · 三选一', W / 2, 120);
+      c.font = '13px ui-monospace, Menlo, monospace';
+      for (let i = 0; i < evoChoices.length; i++) {
+        const ch = evoChoices[i];
+        const y = 188 + i * 52;
+        c.fillStyle = 'rgba(30,60,110,0.5)';
+        c.fillRect(W / 2 - 176, y - 18, 352, 38);
+        c.fillStyle = '#d8f0ff';
+        c.fillText((i + 1) + '. ' + ch.name + '   ' + ch.desc, W / 2, y + 6);
+      }
+      c.fillStyle = 'rgba(150,190,230,0.7)';
+      c.font = '12px ui-monospace, Menlo, monospace';
+      c.fillText('按 1 / 2 / 3 或点击选择', W / 2, 356);
+      c.textAlign = 'left';
+    }
+
+    function drawTitle(c) {
+      c.fillStyle = 'rgba(4,8,20,0.62)';
+      c.fillRect(0, 0, W, H);
+      c.textAlign = 'center';
+      c.fillStyle = '#d8f6ff';
+      c.font = '30px ui-monospace, Menlo, monospace';
+      c.fillText('微噬 MICROPHAGE', W / 2, 130);
+      c.fillStyle = 'rgba(200,230,255,0.85)';
+      c.font = '13px ui-monospace, Menlo, monospace';
+      c.fillText('你是一只白细胞 · 吞食细菌 · 躲避病毒', W / 2, 172);
+      c.fillText('吃光所有细菌进入下一波 · 抗体 Y = 8 秒反击：吞噬病毒', W / 2, 192);
+      c.fillText('WASD / 方向键 / 触屏拖动 游动 · P 暂停 · M 静音', W / 2, 212);
+      c.fillStyle = 'rgba(255,210,120,0.9)';
+      c.fillText('最高分 HI ' + high, W / 2, 232);
+      c.fillStyle = '#7ef0e0';
+      c.font = '15px ui-monospace, Menlo, monospace';
+      c.fillText('按 ENTER 开始', W / 2, 252);
+      c.textAlign = 'left';
+    }
+
+    function drawOver(c) {
+      c.fillStyle = 'rgba(4,8,20,0.68)';
+      c.fillRect(0, 0, W, H);
+      c.textAlign = 'center';
+      c.fillStyle = '#ff8a9a';
+      c.font = '26px ui-monospace, Menlo, monospace';
+      c.fillText('细胞解体', W / 2, 140);
+      c.fillStyle = 'rgba(210,235,255,0.9)';
+      c.font = '14px ui-monospace, Menlo, monospace';
+      c.fillText('SCORE ' + score + ' · WAVE ' + wave, W / 2, 178);
+      c.fillStyle = '#7ef0e0';
+      c.font = '15px ui-monospace, Menlo, monospace';
+      c.fillText('按 ENTER 重生', W / 2, 216);
+      c.textAlign = 'left';
+    }
+
+    // ==================== 音频 ====================
+    function wakeAudio() {
+      try {
+        if (!actx && view && (view.AudioContext || view.webkitAudioContext)) {
+          actx = new (view.AudioContext || view.webkitAudioContext)();
+        }
+        if (actx && actx.state === 'suspended') actx.resume();
+      } catch (err) { /* ignore */ }
+    }
+    function beep(f0, f1, dur, type, vol, delay) {
+      if (muted || !actx) return;
+      try {
+        const t0 = actx.currentTime + (delay || 0);
+        const o = actx.createOscillator();
+        const g = actx.createGain();
+        o.type = type || 'sine';
+        o.frequency.setValueAtTime(Math.max(f0, 1), t0);
+        if (f1 && f1 !== f0) o.frequency.exponentialRampToValueAtTime(Math.max(f1, 1), t0 + dur);
+        g.gain.setValueAtTime(0.0001, t0);
+        g.gain.exponentialRampToValueAtTime((vol || 0.1), t0 + 0.02);
+        g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+        o.connect(g);
+        g.connect(actx.destination);
+        o.start(t0);
+        o.stop(t0 + dur + 0.05);
+      } catch (err) { /* ignore */ }
+    }
+    function eatSound(chainN) {
+      const nowT = Date.now();
+      if (nowT - lastEatT < 60) return;
+      lastEatT = nowT;
+      const pitch = Math.pow(1.06, Math.min(chainN - 1, 10));
+      beep(340 * pitch, 400 * pitch, 0.09, 'sine', 0.07);
+    }
+    function hurtSound() {
+      beep(110, 42, 0.4, 'sawtooth', 0.13);
+      beep(70, 36, 0.5, 'sine', 0.14, 0.05);
+    }
+    function burstSound() {
+      const notes = [420, 560, 720];
+      for (let i = 0; i < notes.length; i++) beep(notes[i], 0, 0.12, 'sine', 0.09, i * 0.07);
+    }
+    function engulfSound() {
+      beep(660, 990, 0.12, 'triangle', 0.11);
+      beep(880, 1320, 0.14, 'sine', 0.09, 0.08);
+    }
+    function waveSound() {
+      const notes = [520, 660, 780, 1040];
+      for (let i = 0; i < notes.length; i++) beep(notes[i], 0, 0.1, 'sine', 0.08, i * 0.08);
+    }
+
+    // ==================== 持久化 ====================
+    function loadHigh() {
+      try {
+        return parseInt(view.localStorage.getItem('microphage-high') || '0', 10) || 0;
+      } catch (err) {
+        return 0;
+      }
+    }
+    function saveHigh() {
+      try {
+        if (score > high) {
+          high = score;
+          view.localStorage.setItem('microphage-high', String(high));
+        }
+      } catch (err) { /* ignore */ }
+    }
+
+    // ==================== 循环 ====================
+    function loop(t) {
+      if (!canvas) return;
+      if (lastT === 0) lastT = t;
+      const dt = Math.min(0.05, (t - lastT) / 1000);
+      lastT = t;
+      if (state === 'play') update(dt);
+      render();
+      if (view && view.requestAnimationFrame) rafId = view.requestAnimationFrame(loop);
+    }
+    function startLoop() {
+      const raf = view && view.requestAnimationFrame;
+      if (raf) {
+        lastT = 0;
+        rafId = raf.call(view, loop);
+      } else {
+        const timer = ctx && ctx.get ? ctx.get('timer') : null;
+        if (!timer) return;
+        lastT = Date.now();
+        ivDispose = timer.interval(function () {
+          if (!canvas) return;
+          const t = Date.now();
+          const dt = Math.min(0.05, (t - lastT) / 1000);
+          lastT = t;
+          if (state === 'play') update(dt);
+          render();
+        }, 33);
+      }
+    }
+
+    // ==================== 输入 ====================
+    function handleKeyDown(e) {
+      const k = e.key;
+      if (k === 'ArrowUp' || k === 'w' || k === 'W') keys.up = true;
+      else if (k === 'ArrowDown' || k === 's' || k === 'S') keys.down = true;
+      else if (k === 'ArrowLeft' || k === 'a' || k === 'A') keys.left = true;
+      else if (k === 'ArrowRight' || k === 'd' || k === 'D') keys.right = true;
+      if (k === 'p' || k === 'P') {
+        if (state === 'play') state = 'paused';
+        else if (state === 'paused') state = 'play';
+      }
+      if (k === 'm' || k === 'M') muted = !muted;
+      if (k === 'Enter') {
+        wakeAudio();
+        if (state === 'title' || state === 'over') startGame();
+      }
+      if (state === 'evolve') {
+        if (k === '1') chooseEvo(0);
+        else if (k === '2') chooseEvo(1);
+        else if (k === '3') chooseEvo(2);
+      }
+      if (k.startsWith('Arrow') || k === ' ' || k === 'Enter') {
+        if (state === 'title' || state === 'over') e.preventDefault();
+      }
+      wakeAudio();
+    }
+    function handleKeyUp(e) {
+      const k = e.key;
+      if (k === 'ArrowUp' || k === 'w' || k === 'W') keys.up = false;
+      else if (k === 'ArrowDown' || k === 's' || k === 'S') keys.down = false;
+      else if (k === 'ArrowLeft' || k === 'a' || k === 'A') keys.left = false;
+      else if (k === 'ArrowRight' || k === 'd' || k === 'D') keys.right = false;
+    }
+    function handlePointerDown(e) {
+      wakeAudio();
+      if (state === 'evolve') {
+        let rect = null;
+        try { rect = canvas.getBoundingClientRect(); } catch (err) { /* ignore */ }
+        if (rect && rect.height) {
+          const y = ((e.clientY - rect.top) / rect.height) * H;
+          chooseEvo(y < 210 ? 0 : y < 262 ? 1 : 2);
+        }
+        return;
+      }
+      if (touchId === null) {
+        touchId = e.pointerId;
+        touchSX = e.clientX;
+        touchSY = e.clientY;
+        touchDX = 0;
+        touchDY = 0;
+      }
+    }
+    function handlePointerMove(e) {
+      if (e.pointerId !== touchId) return;
+      touchDX = e.clientX - touchSX;
+      touchDY = e.clientY - touchSY;
+    }
+    function handlePointerUp(e) {
+      if (e.pointerId === touchId) {
+        touchId = null;
+        touchDX = 0;
+        touchDY = 0;
+      }
+    }
+
+    function attach(node) {
+      if (node === canvas) return;
+      if (canvas) detach();
+      if (!node) return;
+      canvas = node;
+      view = node.ownerDocument.defaultView;
+      c2d = node.getContext('2d');
+      canvas.width = W;
+      canvas.height = H;
+      high = loadHigh();
+      keyDownH = function (e) { handleKeyDown(e); };
+      keyUpH = function (e) { handleKeyUp(e); };
+      pdH = function (e) { handlePointerDown(e); };
+      pmH = function (e) { handlePointerMove(e); };
+      puH = function (e) { handlePointerUp(e); };
+      view.addEventListener('keydown', keyDownH);
+      view.addEventListener('keyup', keyUpH);
+      canvas.addEventListener('pointerdown', pdH);
+      view.addEventListener('pointermove', pmH);
+      view.addEventListener('pointerup', puH);
+      startLoop();
+    }
+    function detach() {
+      if (!canvas) return;
+      if (rafId && view && view.cancelAnimationFrame) {
+        view.cancelAnimationFrame(rafId);
+        rafId = 0;
+      }
+      if (ivDispose) {
+        ivDispose();
+        ivDispose = null;
+      }
+      if (view) {
+        view.removeEventListener('keydown', keyDownH);
+        view.removeEventListener('keyup', keyUpH);
+        canvas.removeEventListener('pointerdown', pdH);
+        view.removeEventListener('pointermove', pmH);
+        view.removeEventListener('pointerup', puH);
+      }
+      canvas = null;
+      c2d = null;
+      view = null;
+    }
+    let keyDownH = null;
+    let keyUpH = null;
+    let pdH = null;
+    let pmH = null;
+    let puH = null;
+
+    return {
+      attach: attach,
+      detach: detach,
+      restart: startGame,
+      chooseEvo: chooseEvo,
+      setInput: function (v) {
+        keys.left = v.x < -0.3;
+        keys.right = v.x > 0.3;
+        keys.up = v.y < -0.3;
+        keys.down = v.y > 0.3;
+      },
+      setSetting: function (key, value) {
+        if (key === 'muted') muted = !!value;
+        if (key === 'shake') shakeEnabled = !!value;
+      },
+      debug: function () {
+        return {
+          state: state,
+          wave: wave,
+          score: score,
+          hp: hp,
+          burstT: burstT,
+          invulnT: invulnT,
+          time: time,
+          high: high,
+          upgrades: { speed: upgrades.speed, membrane: upgrades.membrane, magnet: upgrades.magnet, burst: upgrades.burst, stream: upgrades.stream, chain: upgrades.chain, vamp: upgrades.vamp, quake: upgrades.quake },
+          evoChoices: evoChoices.map(function (c) { return c.id; }),
+          player: player ? { x: player.x, y: player.y, vx: player.vx, vy: player.vy } : null,
+          bacteriaCount: bacteria.length,
+          itemsCount: items.length,
+          bacteria: bacteria.map(function (b) { return { x: b.x, y: b.y }; }),
+          items: items.map(function (it) { return { x: it.x, y: it.y }; }),
+          viruses: viruses.map(function (v) {
+            return { kind: v.kind, x: v.x, y: v.y, vx: v.vx, vy: v.vy, maxSpd: v.maxSpd, respawnT: v.respawnT, cloaked: v.cloaked, bossHp: v.bossHp };
+          }),
+        };
+      },
+    };
+  }
+
+  window.__PHAGE__ = {
+    createPhage: createPhage,
+    makeRng: makeRng,
+    W: W,
+    H: H,
+    PLAYER_R: PLAYER_R,
+    VIRUS_R: VIRUS_R,
+    BURST_T: BURST_T,
+    INVULN_T: INVULN_T,
+  };
+})();
+</script>
+<script>
+// bootstrap
+(function () {
+  const canvas = document.getElementById('stage');
+  const ctx = { get: function (n) { return undefined; } };
+  const engine = window.__PHAGE__.createPhage({ ctx: ctx, seed: 'live' });
+  engine.attach(canvas);
+})();
+</script>
+</body>
+</html>
