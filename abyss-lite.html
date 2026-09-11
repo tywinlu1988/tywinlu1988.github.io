@@ -1,0 +1,546 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>纸片深渊 Paper Abyss — wave-survival micro-roguelike</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  html, body { height:100%; background:#0d0a12; overflow:hidden; }
+  body { font-family:-apple-system,'Segoe UI','PingFang SC','Microsoft YaHei',sans-serif; display:flex; align-items:center; justify-content:center; }
+  #game { border-radius:10px; box-shadow:0 0 80px rgba(88,28,135,.35), 0 16px 60px rgba(0,0,0,.7); }
+  #game canvas { display:block; border-radius:10px; }
+</style>
+</head>
+<body>
+<div id="game"></div>
+<script src="vendor/phaser.min.js"></script>
+<script>
+'use strict';
+/* ================= 纸片深渊 Paper Abyss =================
+   波次生存微型 roguelike（深渊电梯血统）：
+   - WASD / 鼠标按住 双路移动（向量合成）
+   - 自动攻击视野内最近敌人；武器数据驱动（bolt/scatter/rapid/pierce）
+   - 每波结束三选一突变（可升级，Lv.3 封顶）
+   - 完整度（Integrity）经济：随时间衰减 + 闲置惩罚，击杀/拾取回补
+   - 8-bit 程序化音频（WebAudio，零文件）：SFX + 三轨 BGM
+   - 打击反馈：命中闪白、击退、hit-stop、屏幕震动、击杀爆裂粒子 */
+
+const W = 880, H = 560;
+const TAU = Math.PI * 2;
+
+/* ---------- 武器（数据驱动，仿 abyss weapons.js） ---------- */
+const WEAPONS = {
+  bolt:    { name: '自瞄弹', damage: 10, cooldown: 420, projSpeed: 950,  projectiles: 1, spread: 0,    pierce: false, lifespan: 2000, color: 0x9af7ff },
+  scatter: { name: '霰弹',   damage: 6,  cooldown: 700, projSpeed: 900,  projectiles: 5, spread: 0.44, pierce: false, lifespan: 620,  color: 0xffb000 },
+  rapid:   { name: '速射',   damage: 5,  cooldown: 150, projSpeed: 950,  projectiles: 1, spread: 0.06, pierce: false, lifespan: 1600, color: 0x7cff6b },
+  pierce:  { name: '贯穿',   damage: 25, cooldown: 900, projSpeed: 1200, projectiles: 1, spread: 0,    pierce: true,  lifespan: 2200, color: 0xff4d6d },
+};
+const WAVE_WEAPON_OFFERS = ['scatter', 'rapid', 'pierce'];
+
+/* ---------- 突变池（三选一，Lv.3 封顶） ---------- */
+const MUTATIONS = [
+  { id: 'power',   name: '力量强化', icon: '💪', desc: '伤害 +25%/级',        max: 3, fx: { dmgBonus: 0.25 } },
+  { id: 'swift',   name: '迅捷',     icon: '👟', desc: '移速 +12%/级',        max: 3, fx: { speedBonus: 0.12 } },
+  { id: 'vigor',   name: '活力',     icon: '❤️', desc: '最大生命 +20/级',     max: 3, fx: { hpBonus: 20 } },
+  { id: 'leech',   name: '生命汲取', icon: '🩸', desc: '击杀回复 3 生命/级',  max: 3, fx: { leech: 3 } },
+  { id: 'homing',  name: '追踪飞弹', icon: '🎯', desc: '弹道转向追踪/级',     max: 3, fx: { homing: 3.2 } },
+  { id: 'barrier', name: '孢囊护盾', icon: '🛡️', desc: '每 20s 格挡一次伤害', max: 3, fx: { shieldCd: 20 } },
+];
+
+/* ---------- 音频（WebAudio 程序化，仿 abyss AudioManager 精简版） ---------- */
+const Audio8 = {
+  ctx: null,
+  ensure() {
+    if (this.ctx) { if (this.ctx.state === 'suspended') this.ctx.resume(); return true; }
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return false;
+    this.ctx = new AC();
+    this.master = this.ctx.createGain(); this.master.gain.value = 0.5;
+    this.master.connect(this.ctx.destination);
+    const len = this.ctx.sampleRate;
+    this.noiseBuf = this.ctx.createBuffer(1, len, this.ctx.sampleRate);
+    const d = this.noiseBuf.getChannelData(0);
+    for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
+    return true;
+  },
+  tone(type, f0, f1, dur, vol) {
+    if (!this.ensure()) return;
+    const t = this.ctx.currentTime;
+    const o = this.ctx.createOscillator(), g = this.ctx.createGain();
+    o.type = type; o.frequency.setValueAtTime(f0, t);
+    if (f1) o.frequency.exponentialRampToValueAtTime(Math.max(1, f1), t + dur);
+    g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.001, t + dur);
+    o.connect(g); g.connect(this.master); o.start(t); o.stop(t + dur + 0.02);
+  },
+  noise(dur, vol) {
+    if (!this.ensure()) return;
+    const t = this.ctx.currentTime;
+    const s = this.ctx.createBufferSource(); s.buffer = this.noiseBuf;
+    const g = this.ctx.createGain();
+    g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.001, t + dur);
+    s.connect(g); g.connect(this.master); s.start(t); s.stop(t + dur);
+  },
+  sfx(name) {
+    const R = {
+      shoot:  () => this.tone('square', 880, 220, 0.08, 0.10),
+      melee:  () => this.noise(0.08, 0.15),
+      hit:    () => this.tone('sawtooth', 300, 90, 0.10, 0.14),
+      kill:   () => { this.noise(0.18, 0.20); this.tone('square', 220, 55, 0.16, 0.12); },
+      hurt:   () => this.tone('sawtooth', 160, 60, 0.22, 0.20),
+      pickup: () => { this.tone('square', 660, 1320, 0.10, 0.12); },
+      mutate: () => { this.tone('triangle', 330, 990, 0.24, 0.16); },
+      wave:   () => this.tone('square', 220, 440, 0.14, 0.12),
+      death:  () => this.tone('sawtooth', 220, 40, 0.6, 0.22),
+      win:    () => { this.tone('square', 523, 523, 0.12, 0.12); setTimeout(() => this.tone('square', 784, 784, 0.16, 0.12), 130); },
+    };
+    (R[name] || (() => {}))();
+  },
+};
+
+/* ---------- 全局运行状态 ---------- */
+const G = {
+  wave: 0, kills: 0, score: 0,
+  hp: 100, maxHp: 100, integrity: 100,
+  weapon: 'bolt',
+  mutations: {},       // id → level
+  over: false, choosing: false,
+  lastAttack: 0, shieldAt: 0,
+};
+
+function fx() { // 突变效果聚合（仿 abyss computeEffects）
+  const e = { dmg: 1, speed: 1, hp: 0, leech: 0, homing: 0, shieldCd: 0 };
+  for (const [id, lv] of Object.entries(G.mutations)) {
+    const m = MUTATIONS.find(m => m.id === id);
+    if (!m) continue;
+    if (m.fx.dmgBonus) e.dmg += m.fx.dmgBonus * lv;
+    if (m.fx.speedBonus) e.speed += m.fx.speedBonus * lv;
+    if (m.fx.hpBonus) e.hp += m.fx.hpBonus * lv;
+    if (m.fx.leech) e.leech += m.fx.leech * lv;
+    if (m.fx.homing) e.homing += m.fx.homing * lv;
+    if (m.fx.shieldCd) e.shieldCd = m.fx.shieldCd;
+  }
+  return e;
+}
+
+/* ---------- Boot：程序化贴图（无外部素材） ---------- */
+class BootScene extends Phaser.Scene {
+  constructor() { super({ key: 'Boot' }); }
+  create() {
+    const g = this.make.graphics({ add: false });
+    // 玩家：纸飞机形（白）
+    g.fillStyle(0xf5f1e8).fillTriangle(16, 0, 30, 28, 16, 22).fillTriangle(16, 0, 2, 28, 16, 22);
+    g.generateTexture('player', 32, 30); g.clear();
+    // 敌人三种
+    g.fillStyle(0x7cff6b).fillCircle(16, 16, 14); g.fillStyle(0x0d0a12).fillCircle(11, 13, 3).fillCircle(21, 13, 3);
+    g.generateTexture('crawler', 32, 32); g.clear();
+    g.fillStyle(0xbf7fff).fillTriangle(16, 2, 30, 30, 2, 30); g.fillStyle(0x0d0a12).fillCircle(16, 18, 4);
+    g.generateTexture('shooter', 32, 32); g.clear();
+    g.fillStyle(0xff6b6b).fillRoundedRect(2, 2, 28, 28, 8); g.fillStyle(0x2b0a0a).fillRect(9, 12, 14, 6);
+    g.generateTexture('brute', 32, 32); g.clear();
+    // 弹道 / 道具
+    g.fillStyle(0xffffff).fillEllipse(8, 4, 16, 8); g.generateTexture('proj', 16, 8); g.clear();
+    g.fillStyle(0xffd166).fillRect(4, 4, 24, 24); g.fillStyle(0x0d0a12).fillRect(13, 8, 6, 16).fillRect(8, 13, 16, 6);
+    g.generateTexture('chest', 32, 32); g.clear();
+    this.scene.start('Arena');
+  }
+}
+
+/* ---------- Arena：主场景 ---------- */
+class ArenaScene extends Phaser.Scene {
+  constructor() { super({ key: 'Arena' }); }
+
+  create() {
+    G.wave = 0; G.kills = 0; G.score = 0; G.hp = 100; G.maxHp = 100;
+    G.integrity = 100; G.weapon = 'bolt'; G.mutations = {}; G.over = false; G.choosing = false;
+    G.lastAttack = 0; G.shieldAt = -99999;
+
+    this.cameras.main.setBackgroundColor('#12101a');
+    this.add.rectangle(W / 2, H / 2, W - 24, H - 24, 0x1a1626).setStrokeStyle(2, 0x3a2f4f);
+    // 竞技场边界墙
+    this.walls = this.physics.add.staticGroup();
+    const t = 16;
+    [[W / 2, 12, W - 24, t], [W / 2, H - 12, W - 24, t], [12, H / 2, t, H - 24], [W - 12, H / 2, t, H - 24]]
+      .forEach(([x, y, w, h]) => { const r = this.add.rectangle(x, y, w, h, 0x3a2f4f); this.walls.add(r); });
+
+    this.player = this.physics.add.sprite(W / 2, H / 2, 'player');
+    this.player.setCollideWorldBounds(true).setDepth(10);
+    this.player.aimAngle = -Math.PI / 2;
+
+    this.enemies = this.physics.add.group();
+    this.projectiles = this.physics.add.group();
+    this.pickups = this.physics.add.group();
+
+    this.physics.add.collider(this.player, this.walls);
+    this.physics.add.collider(this.enemies, this.walls);
+    this.physics.add.collider(this.enemies, this.enemies);
+    this.physics.add.overlap(this.projectiles, this.enemies, (p, e) => this.hitEnemy(p, e));
+    this.physics.add.overlap(this.projectiles, this.walls, (p) => { if (!p.pierce) p.destroy(); });
+    this.physics.add.overlap(this.player, this.enemies, (pl, e) => this.touchEnemy(e));
+    this.physics.add.overlap(this.player, this.pickups, (pl, pk) => this.takePickup(pk));
+
+    this.keys = this.input.keyboard.addKeys('W,A,S,D');
+    this.input.on('pointerdown', () => { Audio8.ensure(); });
+
+    // HUD（DOM 覆盖层省心，但 abyss 用 React；这里用 Phaser 文本保持一致）
+    this.hudWave = this.add.text(24, 18, '', { fontFamily: 'Georgia, serif', fontSize: '18px', color: '#e8e0d4' }).setDepth(50);
+    this.hudScore = this.add.text(W - 24, 18, '', { fontFamily: 'Georgia, serif', fontSize: '16px', color: '#bfae94' }).setOrigin(1, 0).setDepth(50);
+    this.hudWeapon = this.add.text(W - 24, 42, '', { fontSize: '13px', color: '#9af7ff' }).setOrigin(1, 0).setDepth(50);
+    this.hpBar = this.add.graphics().setDepth(50);
+    this.intBar = this.add.graphics().setDepth(50);
+    this.banner = this.add.text(W / 2, H / 2 - 70, '', { fontFamily: 'Georgia, serif', fontSize: '42px', color: '#e8d5b0', fontStyle: 'bold' }).setOrigin(0.5).setDepth(60).setAlpha(0);
+
+    this.shakeT = 0;
+    this.nextWave();
+  }
+
+  /* ---------- 波次 ---------- */
+  nextWave() {
+    G.wave++;
+    const n = 3 + Math.min(9, G.wave * 2);
+    for (let i = 0; i < n; i++) this.spawnEnemy();
+    this.showBanner(`WAVE ${G.wave}`);
+    Audio8.sfx('wave');
+  }
+
+  spawnEnemy() {
+    const edge = Phaser.Math.Between(0, 3);
+    const m = 50;
+    const x = edge === 0 ? m : edge === 1 ? W - m : Phaser.Math.Between(m, W - m);
+    const y = edge === 2 ? m : edge === 3 ? H - m : Phaser.Math.Between(m, H - m);
+    const roll = Math.random();
+    const kind = G.wave < 2 ? 'crawler' : roll < 0.55 ? 'crawler' : roll < 0.85 ? 'shooter' : 'brute';
+    const e = this.enemies.create(x, y, kind);
+    e.kind = kind;
+    e.hp = kind === 'brute' ? 34 + G.wave * 4 : 12 + G.wave * 2;
+    e.speed = kind === 'brute' ? 46 : kind === 'shooter' ? 70 : 95;
+    e.dmg = kind === 'brute' ? 16 : 10;
+    e.nextShot = 0;
+    e.setCollideWorldBounds(true);
+    e.push({
+      on: true, x, y,
+    });
+  }
+
+  showBanner(txt) {
+    this.banner.setText(txt).setAlpha(0).setScale(0.8);
+    this.tweens.add({ targets: this.banner, alpha: 1, scale: 1, duration: 300, ease: 'Back.easeOut' });
+    this.tweens.add({ targets: this.banner, alpha: 0, delay: 1200, duration: 400 });
+  }
+
+  /* ---------- 战斗 ---------- */
+  fireNearest() {
+    const e = fx();
+    const wpn = WEAPONS[G.weapon];
+    const now = this.time.now;
+    if (now - G.lastAttack < wpn.cooldown) return;
+    // 视野内最近敌人（这里全场可见，保持微型体量）
+    let nearest = null, nd = Infinity;
+    for (const en of this.enemies.getChildren()) {
+      if (!en.active) continue;
+      const d = Phaser.Math.Distance.Between(this.player.x, this.player.y, en.x, en.y);
+      if (d < nd) { nd = d; nearest = en; }
+    }
+    if (!nearest) return;
+    G.lastAttack = now;
+    const baseA = Phaser.Math.Angle.Between(this.player.x, this.player.y, nearest.x, nearest.y);
+    this.player.aimAngle = baseA;
+    const n = wpn.projectiles;
+    for (let i = 0; i < n; i++) {
+      const off = n === 1 ? (Math.random() - 0.5) * (wpn.spread || 0.02) : (i - (n - 1) / 2) * (wpn.spread / Math.max(1, n - 1) * 2);
+      const a = baseA + off;
+      const p = this.projectiles.create(this.player.x + Math.cos(a) * 18, this.player.y + Math.sin(a) * 18, 'proj');
+      p.setTint(wpn.color);
+      p.setVelocity(Math.cos(a) * wpn.projSpeed, Math.sin(a) * wpn.projSpeed);
+      p.damage = Math.round(wpn.damage * e.dmg);
+      p.pierce = wpn.pierce; p.hitSet = new Set();
+      p.bornAt = now; p.lifespan = wpn.lifespan;
+    }
+    this.muzzleFlash();
+    Audio8.sfx(G.weapon === 'bolt' ? 'shoot' : 'melee');
+  }
+
+  muzzleFlash() {
+    const f = this.add.circle(this.player.x + Math.cos(this.player.aimAngle) * 20, this.player.y + Math.sin(this.player.aimAngle) * 20, 6, 0xfff3c4).setDepth(20);
+    this.tweens.add({ targets: f, alpha: 0, scale: 2, duration: 90, onComplete: () => f.destroy() });
+  }
+
+  hitEnemy(p, e) {
+    if (p.hitSet && p.hitSet.has(e)) return;
+    if (p.hitSet) p.hitSet.add(e);
+    e.hp -= p.damage;
+    this.vfxDamage(e.x, e.y, p.damage, '#ffd166');
+    // 闪白 + 击退
+    e.setTintFill(0xffffff);
+    this.time.delayedCall(60, () => e.active && e.clearTint());
+    const ka = Phaser.Math.Angle.Between(this.player.x, this.player.y, e.x, e.y);
+    e.setVelocity(Math.cos(ka) * 200, Math.sin(ka) * 200);
+    if (!p.pierce) p.destroy();
+    if (e.hp <= 0) this.killEnemy(e);
+    else { this.hitStop(50, 0.15); Audio8.sfx('hit'); }
+  }
+
+  killEnemy(e) {
+    const eff = fx();
+    e.setTint(0x7cff6b);
+    this.burst(e.x, e.y, 0x7cff6b, 10);
+    this.cameras.main.shake(90, 0.006);
+    this.hitStop(70, 0.1);
+    Audio8.sfx('kill');
+    G.kills++; G.score += 10 * G.wave;
+    if (eff.leech) G.hp = Math.min(G.maxHp + eff.hp, G.hp + eff.leech);
+    G.integrity = Math.min(100, G.integrity + 2.2);
+    // 掉落：生命 / 完整度 / 武器兑换箱
+    if (Math.random() < 0.12) this.dropPickup(e.x, e.y, 'heart');
+    else if (Math.random() < 0.22) this.dropPickup(e.x, e.y, 'cell');
+    e.destroy();
+    if (this.enemies.countActive(true) === 0 && !G.over) this.waveCleared();
+  }
+
+  dropPickup(x, y, kind) {
+    const p = this.pickups.create(x, y, 'chest');
+    p.kind = kind;
+    if (kind === 'heart') p.setTint(0xff6b8a); else p.setTint(0x9af7ff);
+    p.setScale(0.7);
+  }
+
+  takePickup(pk) {
+    if (pk.kind === 'heart') { G.hp = Math.min(G.maxHp + fx().hp, G.hp + 18); Audio8.sfx('pickup'); }
+    else { G.integrity = Math.min(100, G.integrity + 22); Audio8.sfx('pickup'); }
+    pk.destroy();
+  }
+
+  touchEnemy(e) {
+    const now = this.time.now;
+    if (now - (e.lastTouch || 0) < 800) return;
+    e.lastTouch = now;
+    const eff = fx();
+    // 护盾优先
+    if (eff.shieldCd && now - G.shieldAt > eff.shieldCd * 1000) {
+      G.shieldAt = now;
+      this.showFloat('SHIELD!', '#9af7ff');
+      this.cameras.main.flash(120, 154, 247, 255);
+      return;
+    }
+    G.hp -= e.dmg; G.integrity -= 4;
+    this.player.setTintFill(0xff4444);
+    this.time.delayedCall(120, () => this.player.clearTint());
+    this.cameras.main.shake(140, 0.012);
+    Audio8.sfx('hurt');
+    if (G.hp <= 0) this.gameOver();
+  }
+
+  vfxDamage(x, y, dmg, color) {
+    const t = this.add.text(x, y - 16, String(dmg), { fontFamily: 'Georgia, serif', fontSize: '13px', color }).setDepth(30);
+    this.tweens.add({ targets: t, y: y - 34, alpha: 0, duration: 420, onComplete: () => t.destroy() });
+  }
+
+  showFloat(txt, color) {
+    const t = this.add.text(this.player.x, this.player.y - 26, txt, { fontFamily: 'Georgia, serif', fontSize: '15px', color }).setOrigin(0.5).setDepth(30);
+    this.tweens.add({ targets: t, y: t.y - 30, alpha: 0, duration: 700, onComplete: () => t.destroy() });
+  }
+
+  hitStop(ms, scale) {
+    this.time.timeScale = scale;
+    setTimeout(() => { if (this.time) this.time.timeScale = 1; }, ms);
+  }
+
+  burst(x, y, color, n) {
+    for (let i = 0; i < n; i++) {
+      const c = this.add.circle(x, y, 2 + Math.random() * 3, color).setDepth(25);
+      this.tweens.add({
+        targets: c,
+        x: x + (Math.random() - 0.5) * 90, y: y + (Math.random() - 0.5) * 90,
+        alpha: 0, duration: 320 + Math.random() * 200, onComplete: () => c.destroy(),
+      });
+    }
+  }
+
+  /* ---------- 波间三选一（突变 + 武器offer） ---------- */
+  waveCleared() {
+    G.choosing = true;
+    this.physics.pause();
+    G.integrity = Math.min(100, G.integrity + 12); // 波间喘息
+    Audio8.sfx('win');
+    // 三选一：两个突变 + 一个武器（有武器可换时）
+    const offerMut = Phaser.Utils.Array.Shuffle(MUTATIONS.filter(m => (G.mutations[m.id] || 0) < m.max)).slice(0, 2);
+    const offerWpn = WAVE_WEAPON_OFFERS.filter(id => id !== G.weapon);
+    const choices = offerMut.map(m => ({ type: 'mut', m, lv: (G.mutations[m.id] || 0) + 1 }));
+    if (offerWpn.length) choices.push({ type: 'wpn', id: Phaser.Utils.Array.GetRandom(offerWpn) });
+    this.showChoice(choices);
+  }
+
+  showChoice(choices) {
+    this.choiceUI = [];
+    const bg = this.add.rectangle(W / 2, H / 2, 700, 300, 0x171226, 0.96).setStrokeStyle(2, 0x8a5cf6).setDepth(80);
+    const title = this.add.text(W / 2, H / 2 - 118, '— 深渊的馈赠 · 三选一 —', { fontFamily: 'Georgia, serif', fontSize: '24px', color: '#e8d5b0', fontStyle: 'bold' }).setOrigin(0.5).setDepth(81);
+    this.choiceUI.push(bg, title);
+    choices.forEach((c, i) => {
+      const cx = W / 2 + (i - (choices.length - 1) / 2) * 220;
+      const isWpn = c.type === 'wpn';
+      const icon = isWpn ? '🔫' : c.m.icon;
+      const name = isWpn ? WEAPONS[c.id].name : `${c.m.name} Lv.${c.lv}`;
+      const desc = isWpn ? WEAPONS[c.id].desc : c.m.desc;
+      const card = this.add.rectangle(cx, H / 2 + 16, 200, 150, 0x241b38).setStrokeStyle(2, isWpn ? 0xffb000 : 0x8a5cf6).setDepth(81).setInteractive({ useHandCursor: true });
+      const it = this.add.text(cx, H / 2 - 30, icon, { fontSize: '30px' }).setOrigin(0.5).setDepth(82);
+      const nt = this.add.text(cx, H / 2 + 4, name, { fontFamily: 'Georgia, serif', fontSize: '17px', color: '#f0e6d2', fontStyle: 'bold' }).setOrigin(0.5).setDepth(82);
+      const dt = this.add.text(cx, H / 2 + 42, desc, { fontSize: '12px', color: '#a99e8a', align: 'center', wordWrap: { width: 180 } }).setOrigin(0.5).setDepth(82);
+      card.on('pointerover', () => card.setFillStyle(0x322350));
+      card.on('pointerout', () => card.setFillStyle(0x241b38));
+      card.on('pointerdown', () => this.pickChoice(c));
+      this.choiceUI.push(card, it, nt, dt);
+    });
+  }
+
+  pickChoice(c) {
+    Audio8.sfx('mutate');
+    if (c.type === 'mut') {
+      G.mutations[c.m.id] = (G.mutations[c.m.id] || 0) + 1;
+      if (c.m.fx.hpBonus) G.hp += c.m.fx.hpBonus; // 活力购买即回血
+    } else {
+      G.weapon = c.id;
+      this.showFloat(`换枪：${WEAPONS[c.id].name}`, '#ffb000');
+    }
+    this.choiceUI.forEach(o => o.destroy());
+    this.choiceUI = null;
+    G.choosing = false;
+    this.physics.resume();
+    this.nextWave();
+  }
+
+  gameOver() {
+    G.over = true;
+    Audio8.sfx('death');
+    this.physics.pause();
+    const bg = this.add.rectangle(W / 2, H / 2, 520, 260, 0x1a0e14, 0.97).setStrokeStyle(2, 0xe05555).setDepth(90);
+    const t1 = this.add.text(W / 2, H / 2 - 80, '深渊将你吞噬', { fontFamily: 'Georgia, serif', fontSize: '34px', color: '#e05555', fontStyle: 'bold' }).setOrigin(0.5).setDepth(91);
+    const t2 = this.add.text(W / 2, H / 2 - 10, `波次 ${G.wave} · 击杀 ${G.kills} · 得分 ${G.score}`, { fontSize: '17px', color: '#c9b8a3' }).setOrigin(0.5).setDepth(91);
+    const t3 = this.add.text(W / 2, H / 2 + 60, '点击重新开始', { fontSize: '15px', color: '#8a7d6d' }).setOrigin(0.5).setDepth(91);
+    t3.setInteractive({ useHandCursor: true });
+    const again = () => this.scene.restart();
+    t3.on('pointerdown', again);
+    this.input.keyboard.once('keydown-SPACE', again);
+    this.input.keyboard.once('keydown-ENTER', again);
+  }
+
+  /* ---------- 主更新 ---------- */
+  update(time, delta) {
+    if (G.over || G.choosing) return;
+    const eff = fx();
+    const dt = Math.min(delta, 50) / 1000;
+
+    // 完整度：衰减 + 闲置惩罚（深渊电梯血统）
+    const idle = this.time.now - G.lastAttack > 5000;
+    G.integrity -= (0.5 + (idle ? 1.2 : 0)) * dt;
+    if (G.integrity <= 0) { G.integrity = 0; this.gameOver(); return; }
+
+    // 双路移动（WASD + 鼠标按住，仿 abyss computeMoveVector）
+    let kx = 0, ky = 0;
+    if (this.keys.A.isDown) kx -= 1;
+    if (this.keys.D.isDown) kx += 1;
+    if (this.keys.W.isDown) ky -= 1;
+    if (this.keys.S.isDown) ky += 1;
+    let mx = 0, my = 0;
+    const ptr = this.input.activePointer;
+    if (ptr.leftButtonDown()) {
+      const d = Phaser.Math.Distance.Between(this.player.x, this.player.y, ptr.worldX, ptr.worldY);
+      if (d > 15) { const a = Phaser.Math.Angle.Between(this.player.x, this.player.y, ptr.worldX, ptr.worldY); mx = Math.cos(a); my = Math.sin(a); }
+    }
+    let vx = kx + mx, vy = ky + my;
+    const len = Math.hypot(vx, vy);
+    const spd = 190 * eff.speed;
+    if (len > 0) { vx = vx / len * spd; vy = vy / len * spd; }
+    this.player.setVelocity(vx, vy);
+    if (len > 0) this.player.aimAngle = Math.atan2(vy, vx);
+    this.player.rotation = this.player.aimAngle + Math.PI / 2;
+
+    // 开火
+    this.fireNearest();
+
+    // 追踪飞弹
+    if (eff.homing) {
+      for (const p of this.projectiles.getChildren()) {
+        if (!p.active) continue;
+        let nearest = null, nd = 320 * 320;
+        for (const e of this.enemies.getChildren()) {
+          if (!e.active) continue;
+          const d2 = (e.x - p.x) ** 2 + (e.y - p.y) ** 2;
+          if (d2 < nd) { nd = d2; nearest = e; }
+        }
+        if (nearest) {
+          const cur = Math.atan2(p.body.velocity.y, p.body.velocity.x);
+          const tgt = Phaser.Math.Angle.Between(p.x, p.y, nearest.x, nearest.y);
+          let diff = Phaser.Math.Angle.Wrap(tgt - cur);
+          const turn = Math.max(-eff.homing * dt, Math.min(eff.homing * dt, diff));
+          const na = cur + turn;
+          const sp = Math.hypot(p.body.velocity.x, p.body.velocity.y);
+          p.setVelocity(Math.cos(na) * sp, Math.sin(na) * sp);
+        }
+      }
+    }
+
+    // 敌人 AI
+    for (const e of this.enemies.getChildren()) {
+      if (!e.active) continue;
+      const a = Phaser.Math.Angle.Between(e.x, e.y, this.player.x, this.player.y);
+      if (e.kind === 'shooter') {
+        const d = Phaser.Math.Distance.Between(e.x, e.y, this.player.x, this.player.y);
+        if (d > 240) e.setVelocity(Math.cos(a) * e.speed, Math.sin(a) * e.speed);
+        else e.setVelocity(0, 0);
+        if (time > e.nextShot && d < 420) {
+          e.nextShot = time + 1600;
+          const ep = this.projectiles.create(e.x, e.y, 'proj').setTint(0xbf7fff);
+          ep.setVelocity(Math.cos(a) * 380, Math.sin(a) * 380);
+          ep.damage = 8; ep.enemyOwned = true; ep.pierce = false; ep.hitSet = null;
+        }
+      } else {
+        e.setVelocity(Math.cos(a) * e.speed, Math.sin(a) * e.speed);
+      }
+      // 缓慢转向玩家（滑行感）
+      e.rotation = a;
+    }
+    // 敌方弹命中玩家（用同一 projectiles 组，enemyOwned 区分）
+    for (const p of this.projectiles.getChildren()) {
+      if (!p.active || !p.enemyOwned) continue;
+      if (Phaser.Math.Distance.Between(p.x, p.y, this.player.x, this.player.y) < 18) {
+        p.destroy();
+        G.hp -= 8; G.integrity -= 2;
+        this.player.setTintFill(0xff4444);
+        this.time.delayedCall(120, () => this.player.clearTint());
+        Audio8.sfx('hurt');
+        if (G.hp <= 0) this.gameOver();
+      }
+      if (time - p.bornAt > (p.lifespan || 2000)) p.destroy();
+    }
+    // 我方弹寿命
+    for (const p of this.projectiles.getChildren()) {
+      if (!p.active || p.enemyOwned) continue;
+      if (time - p.bornAt > (p.lifespan || 2000)) p.destroy();
+    }
+
+    // HUD
+    this.hudWave.setText(`WAVE ${G.wave}`);
+    this.hudScore.setText(`得分 ${G.score} · 击杀 ${G.kills}`);
+    this.hudWeapon.setText(`${WEAPONS[G.weapon].name}${Object.keys(G.mutations).length ? ' · 突变×' + Object.keys(G.mutations).length : ''}`);
+    this.hpBar.clear()
+      .fillStyle(0x33111a).fillRect(24, H - 34, 220, 14)
+      .fillStyle(0xe05555).fillRect(24, H - 34, 220 * Math.max(0, G.hp) / (G.maxHp + eff.hp), 14)
+      .fillStyle(0xe8d5b0).fillRect(24, H - 34, 1, 14);
+    this.intBar.clear()
+      .fillStyle(0x0f1a24).fillRect(24, H - 16, 220, 8)
+      .fillStyle(0x9af7ff).fillRect(24, H - 16, 220 * Math.max(0, G.integrity) / 100, 8);
+  }
+}
+
+new Phaser.Game({
+  type: Phaser.AUTO,
+  parent: 'game',
+  width: W, height: H,
+  physics: { default: 'arcade', arcade: { debug: false } },
+  scene: [BootScene, ArenaScene],
+  backgroundColor: '#0d0a12',
+  scale: { mode: Phaser.Scale.FIT, autoCenter: Phaser.Scale.CENTER_BOTH },
+});
+</script>
+</body>
+</html>
